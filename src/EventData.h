@@ -5,6 +5,8 @@
 namespace DIMS
 {
 
+	class MatrixController;
+
 	struct ActionData
 	{
 		//ActiveInput::Data* inputData;

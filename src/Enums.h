@@ -124,7 +124,13 @@ namespace DIMS
 
 
 
-
+	ENUM(ActiveState, uint8_t)
+	{
+		Inactive,		//Active command has not been initialized yet.
+		Managing,		//Active command is managing an input, but is incapable of running a command.
+		Running,		//Active command has confirmed all input requirements have been met and is allowed to run commands.
+		Failing,		//Active command was managing but has now failed, and will cease to run commands.
+	};
 
 	
 

@@ -4,7 +4,6 @@ namespace DIMS
 {
 	struct InputInterface
 	{
-
 		InputInterface(RE::InputEvent* evt, RE::PlayerControls* ctrl) : event{ evt }, controls{ ctrl } {
 
 		}
@@ -44,6 +43,7 @@ namespace DIMS
 					return EventStage::Repeating;
 
 			default:
+				
 				return EventStage::None;
 			}
 

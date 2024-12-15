@@ -17,7 +17,7 @@ namespace DIMS
 		//Priority is handled as a 16 bit number, but getting it's value is a 32 bit number. This allows for mutations
 		// of impossible to replicate values to take place, making it so some states are always on modes, and the other way around.
 		uint16_t priority;
-		uint16_t size = 0;//Event filter will be uint8, this is literal free space. Might as well cache.
+		uint16_t size = 0;//size of trigger arguments
 		ConflictLevel conflict = ConflictLevel::None;//I may move this to action, due to the fact I'm not 100% sure triggers will want unique conflicts.
 		TriggerFlag flags = TriggerFlag::None;
 
@@ -26,6 +26,11 @@ namespace DIMS
 
 
 		void* conditions;//These are conditions SOLELY for the trigger in question.
+
+		size_t trigger_size()
+		{
+			return args.size();
+		}
 
 
 		const Argument* GetInputArgument(size_t input_index, size_t arg_index)
@@ -133,6 +138,11 @@ namespace DIMS
 			return false;
 		}
 		
+
+		bool IsDelayable() const
+		{
+			return args.size() > 1;
+		}
 		
 	};
 

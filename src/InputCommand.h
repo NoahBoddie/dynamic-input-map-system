@@ -20,6 +20,7 @@ namespace DIMS
 		EventStage stageFilter = EventStage::All;			//Controls if the command actually does any actions
 		ActionRecovery recovery = ActionRecovery::Break;
 
+		std::string name;
 
 		ConflictLevel GetConflictLevel() const
 		{

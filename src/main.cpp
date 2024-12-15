@@ -84,8 +84,6 @@ struct InputHook
         //704DE0+49
         REL::Relocation<uintptr_t> hook{ REL::RelocationID{41259, 0}, 0x49 };
     
-        SKSE::AllocTrampoline(14);
-
         func = SKSE::GetTrampoline().write_call<5>(hook.address(), thunk);
         
         logger::debug("hook success.");
@@ -110,6 +108,14 @@ struct InputHook
             auto code = id_event->GetIDCode();
             auto str = id_event->userEvent;
 
+            if (auto button = a_event->AsButtonEvent())
+            {
+                if (button->value == 0)
+                {
+                    //return;
+                }
+            }
+
             if (auto thumb_event = a_event->AsThumbstickEvent())
             {
                 auto x = thumb_event->xValue;
@@ -125,6 +131,35 @@ struct InputHook
 
     inline static REL::Relocation<decltype(thunk)> func;
 };
+
+
+
+struct ReleaseHook
+{
+    static void Install()
+    {
+
+        //704DE0+A3
+        REL::Relocation<uintptr_t> hook{ REL::RelocationID{41259, 0}, 0xA3 };
+
+        func = SKSE::GetTrampoline().write_call<5>(hook.address(), thunk);
+
+        logger::debug("hook success.");
+    }
+
+
+
+    static void thunk(RE::PlayerControls* a_controls)
+    {
+        DIMS::testController->HandleRelease(a_controls);
+        return func(a_controls);    
+    }
+
+     
+
+    inline static REL::Relocation<decltype(thunk)> func;
+};
+
 
 
 SKSEPluginLoad(const LoadInterface* skse) {
@@ -156,7 +191,11 @@ SKSEPluginLoad(const LoadInterface* skse) {
 
     InitializeMessaging();
 
+    SKSE::AllocTrampoline(14 *  2);
+
     InputHook::Install();
+    ReleaseHook::Install();
+
 
     log::info("{} has finished loading.", plugin->GetName());
     return true;

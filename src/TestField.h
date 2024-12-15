@@ -274,19 +274,7 @@ namespace DIMS
 
 	};
 
-	struct DelayedCommand
-	{
-		//The purpose of a waiter is for an object who has fulfilled their inputs, but other objects are also waiting on further inputs which may
-		// invalidate that waiter.
-
-		//It's important to note this primarily will only occur from the result of a successful blocking obstructing command.
-
-		std::shared_ptr<CommandEntry> cause;
-
-		//This is the successful obstructing command. It will be resolved if this waiting function doesn't succeed, and if 
-		std::shared_ptr<CommandEntry> queued;
-		//The above can actually use ActiveCommands instead, since they'll be tentatives.
-	};
+	
 
 
 
@@ -348,8 +336,21 @@ namespace DIMS
 		RE::DebugNotification(report.c_str(), "UIObjectiveNew");
 
 	}
+
+	void tmp_YELL_a_nameNEW(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	{
+		auto report = std::format("Action: Name No. {} has been called on. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
+		logger::info("{}", report);
+		RE::DebugMessageBox(report.c_str());
+
+	}
 	//
 	
+	struct DelayedCommand
+	{
+		std::vector<CommandEntry> queue;
+		EventStage stage;
+	};
 
 	struct ActiveInput
 	{
@@ -368,19 +369,110 @@ namespace DIMS
 		bool isStrong = true;
 
 		std::array<ActiveCommand::ID, EventStage::Total> blockCommands{};
-
+		
 
 		std::vector<ActiveCommand> sharedCommands;
 
+		//At a later point, make this a pointer. Not all commands would ever need this.
+		// I have no idea if I may use a ref later.
+		//std::unordered_map<ActiveCommand::ID, uint16_t> delayCommands;
+		//If I could make some sort of struct that default creates a targeted object when accessed, that would be cool.
+		std::set<ActiveCommand::ID> delayCommands;
+		
+		auto& ObtainDelayCommands()
+		{
+			return delayCommands;
+		}
+
+
+		bool HasDelayedCommands() const
+		{
+			//combine once delaycommands is a pointer.
+			//if (!delayCommands)
+			//	return false;
+
+			if (delayCommands.size() == 0)
+				return false;
+
+			return true;
+		}
+
+		//Recieves a command and returns the reference to the address of the emplaced entry
+		ActiveCommand& AddCommand(ActiveCommand& command)
+		{
+
+			if (HasDelayedCommands() == true) {
+				for (auto id : ObtainDelayCommands())
+				{
+					auto delayed = GetCommandFromID(id);
+
+					if (!delayed) {
+						continue;//This shouldn't happen. But checks and all.
+					}
+
+
+
+
+					if (delayed->entry->tmpname_ShouldWaitOnMe(*command.entry) == true) {
+						command.tempname_IncWaiters();
+					}
+				}
+			}
+
+
+			command.Activate();
+
+			auto& result = sharedCommands.emplace_back(std::move(command));
+
+
+			if (result->IsDelayable() == true) {
+				//TODO: This may have issues suppressing other non-delayed commands. I think should be added regardless if it's actually running or not, ...
+				// otherwise it may not suppress events it my normally depending on the order of inputs
+				EmplaceDelayCommand(result);
+			}
+
+			return result;
+		}
+
+		void EmplaceDelayCommand(const ActiveCommand& act)
+		{
+			auto& commands = ObtainDelayCommands();
+
+			if (commands.emplace(act.id()).second) {
+				
+				//This should only be trigger if the command says the input should wait too.
+				// For now, this means nothing.
+				preserve++;
+
+				for (auto& other : sharedCommands)
+				{
+					if (act.entry->tmpname_ShouldWaitOnMe(*other.entry) == true) {
+						other.tempname_IncWaiters();
+					}
+
+
+
+				}
+			}
+			
+			//commands.insert_range(commands.end(), entries);
+		}
+
+
+
+		//TODO: Need a function to fail a command, which clears out the waiters.
 
 		//private
 		bool EmplaceBlockCommandID(const ActiveCommand& cmd)
 		{
+			if (cmd.entry->ShouldBlockTriggers() == false)
+				return true;
+
 			std::vector<ActiveCommand::ID*> adjust_list;
 
-			auto stages = cmd.command->GetBlockingFilter();
+			auto stages = cmd.entry->GetBlockingFilter();
 
-			for (int x, y = 0; x < EventStage::Total; x <<= 1, y++)
+			for (int x = 1, y = 0; x < EventStage::Total; (x <<= 1), y++)
 			{
 				if (stages & x)
 				{
@@ -417,62 +509,79 @@ namespace DIMS
 
 
 
-
-		bool EmplaceCommand(CommandEntryPtr cmd, EventStage stage)
+		//Returns the active id so one can check if they are the blocking one.
+		bool EmplaceCommand(CommandEntryPtr cmd, EventStage stage, ActiveCommand::ID& id)
 		{
-			/*
-			First try to get command from entry.
-			If it fails, this only controls if we make it later or not.
-
-			//*/
-
 			ActiveCommand* act_ptr = GetCommandFromEntry(cmd);
 
-
-			if (!act_ptr && cmd->GetFirstStage() != stage) {
-				//This refuses to use commands that isn't on it's proper stage.
-				return false;
-			}
-
-
-			//It looks cursed, I know.
-			ActiveCommand act_cmd{ cmd, stage };
-
-			ActiveCommand* command = act_ptr ? GetCommandFromEntry(cmd) : &act_cmd;
-			
-			if (cmd->ShouldBlockTriggers() && EmplaceBlockCommandID(*command) == false)
-				return false;
+			auto block_id = GetIDFromStage(stage);
 
 			if (!act_ptr) {
-				sharedCommands.push_back(act_cmd);
-				//command = std::addressof(sharedCommands.emplace_back(act_cmd));//This one is in case I need something later
+				if (cmd->GetFirstStage() < stage || block_id) {
+					//This refuses to use commands that isn't on it's proper stage.
+					return false;
+				}
 			}
-			else {
+			//Just remembered this bit here goes against what I consider to be "legal" here. If it's in active, it gets to finish its role.
+			//else if (act_ptr->id() != block_id) {
+			//	return 0;
+			//}
+
+
+		
+			ActiveCommand act_cmd{ cmd, stage };
+
+			ActiveCommand* command = act_ptr ? act_ptr : &act_cmd;
+			
+			if (cmd->ShouldBlockTriggers() && EmplaceBlockCommandID(*command) == false)
+				return 0;
+
+			if (!act_ptr) {
+				command = &AddCommand(act_cmd);
+			}
+			else if (command->entry->GetTriggerFilter() & stage) {
 				command->stages |= stage;
 			}
 
-			return true;
+			id = act_cmd.id();
+
+			if (command->IsRunning() == true) {
+				return true;
+			}
+
+			//This needs to be done in the handle function
+			//ObtainDelayedCommands().emplace(command->id());
+			
+			return false;
 		}
+
 
 		//Feel like something like UpdateCommand would be best here.
 
 		ActiveCommand* GetCommandFromID(ActiveCommand::ID id)
 		{
-			auto it = sharedCommands.begin();
-			auto end = sharedCommands.end();
+			if (id) {
+				auto it = sharedCommands.begin();
+				auto end = sharedCommands.end();
 
-			it = std::find_if(it, end, [id](ActiveCommand&& entry) {return entry.id() == id; });
+				it = std::find_if(it, end, [id](ActiveCommand& entry) {return entry.id() == id; });
 
-			if (it != end)
-				return std::addressof(*it);
-
+				if (it != end)
+					return std::addressof(*it);
+			}
+			
 			return nullptr;
 		}
 		
-		ActiveCommand* GetBlockCommandFromStage(EventStage stage)
+		inline ActiveCommand::ID GetIDFromStage(EventStage stage) const
 		{
 			auto inch = std::countr_zero(std::to_underlying(stage));
-			auto id = blockCommands[inch];
+			return blockCommands[inch];
+		}
+
+		ActiveCommand* GetBlockCommandFromStage(EventStage stage)
+		{
+			auto id = GetIDFromStage(stage);
 			return GetCommandFromID(id);
 		}
 
@@ -482,7 +591,7 @@ namespace DIMS
 			auto it = sharedCommands.begin();
 			auto end = sharedCommands.end();
 
-			it = std::find_if(it, end, [command](ActiveCommand&& entry) {return entry.command == command; });
+			it = std::find_if(it, end, [command](ActiveCommand& entry) {return entry.entry == command; });
 
 			if (it != end)
 				return std::addressof(*it);
@@ -511,15 +620,36 @@ namespace DIMS
 		/// <returns></returns>
 		bool IsStageBlocked(EventStage stage, bool trig)
 		{
-			if (auto cmd = GetBlockCommandFromStage(stage)) {
-				return trig ? cmd->command->ShouldBlockTriggers() : cmd->command->ShouldBlockNative();
+			if (trig) {
+				//For regular trig blocking you need to visit all active commands
+				if (auto cmd = GetBlockCommandFromStage(stage)) {
+					return cmd->entry->ShouldBlockTriggers();
+				}
+			}
+			else {
+				for (auto& act : sharedCommands) {
+					//This doesn't check for stages because if it blocks once it blocks every one after
+					if (act.entry->ShouldBlockNative() == true)
+						return true;
+				}
+
 			}
 			return false;
 		}
 		
+
+		bool IsCommandBlockingStage(ActiveCommand::ID id, EventStage stage)
+		{
+			if (!stage || !id)
+				return false;
+
+			auto inch = std::countr_zero(std::to_underlying(stage));
+			return id == blockCommands[inch];
+		}
+
 		//To prevent the need to ask if the stage is blocked over and over, I'll delegate it to a hash, that will just represent the entries.
 		// If change occurs, we know what's what.
-		bool IsStageBlockedHashed(bool& previous_value, size_t& hash, EventStage stage)
+		bool IsStageBlockedHashed(bool& previous_value, size_t& hash, ActiveCommand::ID id, EventStage stage)
 		{
 			//I don't like the idea of this terribly, but it will have to do.
 			// This is effectively always going to be faster than the alternative of finding EVERY time I want to check it.
@@ -535,15 +665,131 @@ namespace DIMS
 				previous_value = IsStageBlocked(stage, true);//This has no need to ask for not trigger. it will already do non-triggers.
 				hash = seed;
 			}
+			bool result = previous_value;
 
-			return previous_value;
+			if (result) {
+				//While this will not change whether it's generally blocked, it will change if this one query returns true or false
+				result = !IsCommandBlockingStage(id, stage);
+			}
+
+			return result;
 		}
+
+		//Tries to release the delayed command list. Return true if delayed commands no longer exists.
+		bool TryReleaseDelayed()
+		{
+			//Unsure if I want to do this, mainly because
+			if (HasDelayedCommands() == false)
+				return true;
+
+			if (delayCommands.size() != 0)
+				return false;
+
+			return false;
+		}
+
+
+		//returns false when it no longer has any commands to be updated.
+		bool UpdateDelayed()
+		{
+			if (HasDelayedCommands() == false)
+				return false;
+
+			auto& commands = ObtainDelayCommands();
+
+			for (auto it = commands.begin(); it != commands.end(); ) {
+				if (auto command = GetCommandFromID(*it); !command || command->IsRunning() == true) {
+					it = commands.erase(it);
+				}
+				else {
+					++it;
+				}
+			}
+			//I would desperately like to have delete the entry, but I figure that's basically just having it flicker isn't it?
+			// if another delay gets added I have to make it, and if one doesn't it gets deleted anyways.
+			return commands.size();
+		}
+		[[deprecated("ActiveCommand is running handles this currently")]]
+		bool CanRunCommand(const ActiveCommand& command) const
+		{
+			//Later when I'm feeling like having a brain, this needs to check the queue list.
+			return command.IsRunning();
+		}
+
+
+		std::vector<ActiveCommand*> GetActiveCommands()
+		{
+			std::vector<ActiveCommand*> result{};
+			result.reserve(sharedCommands.size());
+
+			for (auto& command : sharedCommands) {
+				if (command.IsRunning() == true) {
+					result.push_back(&command);
+				}
+			}
+
+			return result;
+		}
+
+		void VisitActiveCommands(EventStage stage, std::function<void(ActiveCommand&)> func)
+		{
+			for (auto& command : sharedCommands) {
+				if (command.stages & stage && command.IsRunning() == true) {
+					func(command);
+				}
+			}
+		}
+
+
 	};
 
 	using ActiveInputPtr = std::unique_ptr<ActiveInput>;
 
-	struct MatrixController
+	struct ActiveInputHandle
 	{
+		using ActiveInputMap = std::unordered_map<Input::Hash, ActiveInputPtr>;
+		ActiveInputMap& map;
+
+		Input::Hash hash;
+
+		ActiveInput* input = nullptr;
+
+		ActiveInput* ObtainActiveInput()
+		{
+			if (!input)
+			{
+				auto& ptr = map[hash];
+
+				if (!ptr)
+					ptr = std::make_unique<ActiveInput>();
+
+				input = ptr.get();
+			}
+
+			return input;
+		}
+
+		ActiveInput* operator->()
+		{
+			return ObtainActiveInput();
+		}
+
+		ActiveInputHandle(Input h, ActiveInputMap& m) : hash{ h }, map{ m }
+		{
+			assert(!h.IsControl());
+
+			if (h.IsControl() == true)
+				throw std::exception("Cannot obtain active input for control");
+
+		}
+
+	};
+
+
+	class MatrixController
+	{
+	public:
+
 		//0 for no mode currently loaded.
 		
 		
@@ -558,6 +804,11 @@ namespace DIMS
 
 		//If this is null it will pass go.
 		MatrixMap selectedMatrix;
+
+
+		//Having an extra map here that basically serves as the pending release map might be useful.
+		// That, or having a given active input dump all of it's command inputs. I think this actually might be a good idea,
+		// just preventing things already in the set form firing off.
 
 		CommandMap dynamicMap;
 
@@ -576,7 +827,7 @@ namespace DIMS
 		
 		std::vector<InputCommand*> updateCommands;
 
-		std::vector<DelayedCommand> delayList;
+		std::set<Input::Hash> delayList;
 
 
 		
@@ -606,7 +857,23 @@ namespace DIMS
 
 		MatrixController()
 		{
-			auto conflict = ConflictLevel::Capturing;
+
+#define MAKE_INPUT(mc_action, mc_func, mc_aParam, mc_priority, mc_trigger, mc_conflict, mc_tFilter, mc_tParam)\
+			InputCommand* CONCAT(command,__LINE__) = new InputCommand;\
+			auto& CONCAT(action,__LINE__) = CONCAT(command,__LINE__)->actions.emplace_back();\
+			CONCAT(action,__LINE__).type = mc_action;\
+			auto& CONCAT(args,__LINE__) = CONCAT(action,__LINE__).args = std::make_unique<Argument[]>(3);\
+			CONCAT(args,__LINE__)[InvokeFunction::FUNCTION_PTR] = mc_func;\
+			CONCAT(args,__LINE__)[InvokeFunction::CUST_PARAM_1] = mc_aParam;\
+			auto& CONCAT(trigger,__LINE__) = CONCAT(command,__LINE__)->triggers.emplace_back();\
+			CONCAT(trigger,__LINE__).priority = mc_priority;\
+			CONCAT(trigger,__LINE__).type = mc_trigger;\
+			CONCAT(trigger,__LINE__).conflict = mc_conflict;\
+			CONCAT(trigger,__LINE__).stageFilter = mc_tFilter;\
+			CONCAT(trigger,__LINE__).args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = mc_tParam;\
+			something.push_back(CONCAT(command,__LINE__));
+
+
 			
 
 
@@ -688,7 +955,8 @@ namespace DIMS
 			trigger3.conflict = ConflictLevel::Defending;
 			trigger3.stageFilter = EventStage::Start;
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
-
+			
+			command3->name = "Silent 69";
 
 			InputCommand* command4 = new InputCommand;
 
@@ -696,7 +964,7 @@ namespace DIMS
 			auto& action4 = command4->actions.emplace_back();
 			action4.type = ActionType::InvokeFunction;
 			auto& args4 = action4.args = std::make_unique<Argument[]>(3);
-			args4[InvokeFunction::FUNCTION_PTR] = tmp_say_a_nameNEW;
+			args4[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
 			args4[InvokeFunction::CUST_PARAM_1] = 10;
 
 			auto& trigger4 = command4->triggers.emplace_back();
@@ -705,8 +973,15 @@ namespace DIMS
 			trigger4.conflict = ConflictLevel::Guarding;
 			trigger4.stageFilter = EventStage::StartFinish;
 			trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
-			
+			trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
+
+
+
 			std::vector<InputCommand*> something{ command1, command2, command3, command4, command5, command6 };
+
+
+			//MAKE_INPUT(ActionType::InvokeFunction, tmp_say_a_nameNEW, 20, 20, TriggerType::OnControl, ConflictLevel::Blocking, EventStage::Start, "Left Attack/Block");
+
 
 		
 			for (auto command : something)
@@ -749,6 +1024,46 @@ namespace DIMS
 			return *ptr;
 		}
 
+		//Takes input because it is genuinely easier to do it like this.
+		bool ClearActiveInput(Input input)
+		{
+			if (input.IsControl() == true)
+				throw std::exception("Cannot obtain active input for control");
+			
+			//Later, this will very likely stick around and clear itself instead. For now, this works.
+
+
+			return activeMap.erase(input);
+			
+		}
+
+		bool ClearActiveInput(decltype(activeMap)::iterator& it)
+		{
+			auto test = activeMap.erase(it);
+			//auto result = test == it;
+			it = test;
+			return true;
+
+		}
+
+		//I'm actually not sure if I'll even need this. SO I'm holding off on it for now.
+		bool UpdateDelayedInputs()
+		{
+			for (auto it = delayList.begin(); it != delayList.end(); ) {
+				auto found = activeMap.find(*it);
+				
+				if (activeMap.end() == found || found->second->UpdateDelayed() == true) {
+					it = delayList.erase(it);
+				}
+				else {
+					++it;
+				}
+			}
+			//I would desperately lik
+			return delayList.size();
+		}
+
+
 		bool HandleEvent(InputInterface event, std::unique_ptr<RE::InputEvent>& out)
 		{
 			//HandleEvent is basically the core driving function. It takes the player controls, and the given input event, as well as an
@@ -772,7 +1087,7 @@ namespace DIMS
 			Input input{ event };
 
 
-			auto& active_input = ObtainActiveInput(input);
+			ActiveInputHandle active_input{ input, activeMap };
 
 			//So what's the order to do?
 
@@ -785,15 +1100,15 @@ namespace DIMS
 			auto ctrl_entry = dynamicMap.find(Input::CONTROL);
 			auto inp_entry = dynamicMap.find(input.hash());
 
-			auto end = dynamicMap.end();
+			auto d_end = dynamicMap.end();
 
 			detail::VisitorList list;
 
-			if (ctrl_entry != end){
+			if (ctrl_entry != d_end){
 				list.push_back(std::ref(ctrl_entry->second));
 			}
 
-			if (inp_entry != end) {
+			if (inp_entry != d_end) {
 				list.push_back(std::ref(inp_entry->second));
 			}
 
@@ -807,7 +1122,15 @@ namespace DIMS
 			size_t hash = 0;//starts as zero so it will always need to load the first time.
 
 			//I don't remember why, but I think it was best to do this.
+			// I remember why, it's because only the stuff in active input is actually fired. When a multiple stage command, or a 
+			// single stage blocking command finds itself in the active input it simply puts itself into the call list.
+			// non trigger blocking single stage stuff will add itself so long as there's no blocking.
+			//Actually, fuck the list. 
 			//std::vector<CommandEntry*> call_list;
+
+			std::vector<CommandEntryPtr> after_list;
+
+			//I think I should perhaps redo this bit. I think I would ONLY ever need this to retrieve viable options.
 
 			VisitLists([&](CommandEntryPtr entry, bool& should_continue)
 			{
@@ -816,21 +1139,32 @@ namespace DIMS
 					
 					bool result = true;
 
+					//TODO: asking for the id in emplacement might not be necessary, or continuing past emplacement.
+					ActiveCommand::ID id = 0;
 
-					if (entry->GetTriggerFilter() & stage) {
-						//If it has multiple stages, blocks multiple actions 
-						if (entry->HasMultipleStages() || entry->ShouldBlockTriggers() == true)
+
+					if (1){//entry->GetTriggerFilter() & stage) {
+						//If it has multiple stages, blocks multiple actions.
+						if (entry->HasMultipleBlockStages() || entry->ShouldBlockTriggers() || entry->HasFinishStage())
 						{
-							if (active_input.EmplaceCommand(entry, stage) == false) {
+							if (active_input->EmplaceCommand(entry, stage, id) == false) {
 								return;
 							}
 						}
+						else if (entry->GetTriggerFilter() & stage) {
+							after_list.push_back(entry);
+						}
+						return;
 
-						if (!active_input.IsStageBlockedHashed(block_, hash, stage) || entry->ShouldBeBlocked() == false) {
+						//I think I'm actually going to put this in emplace.
+						if (!active_input->IsStageBlockedHashed(block_, hash, id, stage) || entry->ShouldBeBlocked() == false) {
 
 							EventData data{ this, nullptr, event, stage };
 
-							result = entry->Execute(data, flags);
+							if (!entry->Execute(data, flags) ) {
+								//This should do something, but currently I'm unsure what exactly.
+								//allow_execute
+							}
 						}
 					}
 
@@ -861,11 +1195,157 @@ namespace DIMS
 
 
 			}, list);
+			
 
-			return active_input.IsStageBlocked(stage, false) || (flags & EventFlag::Continue);
+			auto it = after_list.begin();
+			auto end = after_list.end();
+
+
+			//TODO: I just realized these don't really account for if they are supposed to be blocked.
+
+			auto mid_function = [&](ActiveCommand* act)
+			{
+				while (it != end && (!act || it->get()->priority() > act->entry->priority())) {
+					//I'm just going to boiler plate this cause I'm fucking lazy
+					//Also, testing this one out, no more check functions on stage blocking, updates will not be happening so best to do it here.
+
+					auto& entry = *(it++);
+
+
+
+					if (!active_input->IsStageBlockedHashed(block_, hash, 0, stage) || entry->ShouldBeBlocked() == false) {
+					//if (!block_ || entry->ShouldBeBlocked() == false) {
+
+						EventData data{ this, nullptr, event, stage };
+
+						if (!entry->Execute(data, flags)) {
+							//This should do something, but currently I'm unsure what exactly.
+							//allow_execute
+						}
+					}
+				}
+			};
+
+			//I just want to say, this set up is literally fucking unhinged and I shold be ashamed of it.
+			active_input->VisitActiveCommands(stage, [&](ActiveCommand& act)
+			{	
+				mid_function(&act);
+
+
+				//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+				// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+				// computing needed to process things that will never come into success.
+				
+				if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), stage) || act.entry->ShouldBeBlocked() == false) {
+				//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+
+					EventData data{ this, nullptr, event, stage };
+
+					if (!act.entry->Execute(data, flags) ) {
+						//This should do something, but currently I'm unsure what exactly.
+						//allow_execute
+					}
+				}
+			});
+
+			mid_function(nullptr);
+
+			//Do the actual thing here.
+
+
+
+			bool result = !active_input->IsStageBlocked(stage, false) || (flags & EventFlag::Continue);
+
+			if (stage == EventStage::Finish) {
+				ClearActiveInput(input);
+			}
+
+			return result;
 
 
 			return allow_execute || (flags & EventFlag::Continue);
+		}
+
+		void HandleRelease(RE::PlayerControls* a_controls)
+		{
+			bool block_;
+
+			size_t hash = 0;
+
+			std::unique_ptr<RE::ButtonEvent> button{ RE::ButtonEvent::Create(RE::INPUT_DEVICES::kNone, "", 0, 0, 0) };
+
+			InputInterface event{ button.get(), a_controls };
+
+
+			//*
+			for (auto it = activeMap.begin(); it != activeMap.end(); ) {
+				auto dump = it->first;
+				auto& active = it->second;
+				
+				EventFlag flags = EventFlag::None;
+
+				Input input = dump;
+
+				button->device = input.device;
+				button->heldDownSecs = active->data.secondsHeld;
+
+				active->VisitActiveCommands(EventStage::Finish, [&](ActiveCommand& act)
+					{
+						if (act.stages & EventStage::Finish) {
+							//This already processed a finish, no need.
+							return;
+						}
+						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+						// computing needed to process things that will never come into success.
+
+						if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) {
+							//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+
+							EventData data{ this, nullptr, event, EventStage::Finish };
+
+							if (!act.entry->Execute(data, flags)) {
+								//This should do something, but currently I'm unsure what exactly.
+								//allow_execute
+							}
+						}
+					});
+
+				
+				if (ClearActiveInput(it) == false) {
+					++it;
+				}
+			}
+			//*/
+			
+
+			return;
+			for (auto& [dump, active] : activeMap)
+			{
+
+				
+
+
+				//ClearActiveInput
+
+
+
+				//How do we do this exactly? call InputInterface?
+
+				//We could have an easy store of every device as well as every input or something like that. Soooo, active input.
+
+				//From there, we have a function that we fire off that basically updates every control that we currently have,
+				// we input stuff for controls the whole shebang and fire it off.
+				
+
+				//So basically it will be up to each ActiveInput to help resolve. But unlike skyrim we cant just leave because we don't have all
+				// active stuff loaded.
+
+				//HOWEVER, a good resolve for that might just be allowing for things to be added even if it isn't it's time. This might be prefered.
+				// the rule about the first stage must then change to "If the stage given is later than the first stage".
+			}
+
+			//An emergency release.
 		}
 	};
 
