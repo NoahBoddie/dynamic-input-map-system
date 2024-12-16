@@ -32,6 +32,12 @@ namespace DIMS
 			return args.size();
 		}
 
+		bool IsControlTrigger() const
+		{
+			auto trig_info = triggerInfo[type];
+			return trig_info->IsControlTrigger();
+		}
+
 
 		const Argument* GetInputArgument(size_t input_index, size_t arg_index)
 		{
@@ -73,47 +79,18 @@ namespace DIMS
 		}
 
 
-		bool AllowInput(Input input) const
-		{
-			if (input.IsControl())
-				return false;
 
-			auto trig_info = triggerInfo[type];
-
-			for (auto& arg : args)
-			{
-				if (trig_info->GetInput(arg.get()) == input)
-					return true;
-			}
-
-			return false;
-		}
-
-		bool AllowControl(ControlID control) const
-		{
-			if (!control)
-				return false;
-
-			auto trig_info = triggerInfo[type];
-
-			for (auto& arg : args)
-			{
-				if (trig_info->GetControl(arg.get()) == control)
-					return true;
-			}
-
-			return false;
-		}
-
-
-
-		bool CanHandleEvent(RE::InputEvent* event) const
+		bool CanHandleEvent(RE::InputEvent* event, int8_t index) const
 		{
 			auto trig_info = triggerInfo[type];
 
-			for (auto& arg : args)
+			//This is for contros
+			auto size = index == -1 ? args.size() : index + 1;
+			
+			//This shit is a poorly attempt to get it to loop only if it's not a control
+			for (auto i = index == -1 ? 0 : index; i < size; i++)
 			{
-				if (trig_info->CanHandleEvent(event, arg.get()) == true)
+				if (trig_info->CanHandleEvent(event, args[i].get()) == true)
 					return true;
 			}
 
@@ -141,8 +118,22 @@ namespace DIMS
 
 		bool IsDelayable() const
 		{
-			return args.size() > 1;
+			
+
+			return GetDelayState(nullptr, nullptr) != DelayState::None;
 		}
+
+
+		DelayState GetDelayState(InputInterface* input, ActiveData* data) const
+		{
+			auto trig_info = triggerInfo[type];
+
+			auto& re_args = reinterpret_cast<const std::vector<Argument*>&>(args);
+
+			return trig_info->GetDelayState(re_args, input, data);
+		}
+
+
 		
 	};
 

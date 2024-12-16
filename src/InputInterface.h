@@ -1,5 +1,7 @@
 #pragma once
 
+#include "InputNumber.h"
+
 namespace DIMS
 {
 	struct InputInterface
@@ -50,6 +52,28 @@ namespace DIMS
 		}
 
 
+		float GetValue() const
+		{
+			//Later, the point of this will be to assess what level of strength someone is putting into
+			// a mouse move, or thumbstick movement. Some agreed setting will be used with the mouse movement, which will cap
+			// at a certain value.
+
+			switch (event->GetEventType())
+			{
+			case RE::INPUT_EVENT_TYPE::kButton:
+				if (auto button = event->AsButtonEvent())
+					return button->value;
+
+			case RE::INPUT_EVENT_TYPE::kMouseMove:
+			case RE::INPUT_EVENT_TYPE::kThumbstick:
+				return 0;
+
+			default:
+
+				return 0.f;
+			}
+		}
+
 		RE::NiPoint2 GetAxis() const
 		{
 			switch (event->GetEventType())
@@ -97,6 +121,31 @@ namespace DIMS
 			}
 		}
 
+
+		std::pair<InputNumber, InputNumber> GetInputValues() const
+		{
+
+			switch (event->GetEventType())
+			{
+			case RE::INPUT_EVENT_TYPE::kButton: {
+				auto button = event->AsButtonEvent();
+				return { button->value, button->heldDownSecs };
+			}
+			case RE::INPUT_EVENT_TYPE::kMouseMove: {
+				auto mouse = event->AsMouseMoveEvent();
+				return { mouse->mouseInputX, mouse->mouseInputY };
+			}
+
+			case RE::INPUT_EVENT_TYPE::kThumbstick: {
+				auto thumb = event->AsThumbstickEvent();
+				return { thumb->xValue, thumb->yValue };
+			}
+			default:
+				return {};
+			}
+
+			
+		}
 
 
 		//Checks if an input event is an axis, either by user or by nature

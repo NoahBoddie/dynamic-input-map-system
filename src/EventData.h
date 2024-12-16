@@ -6,17 +6,18 @@ namespace DIMS
 {
 
 	class MatrixController;
+	struct ActiveData;
 
 	struct ActionData
 	{
 		//ActiveInput::Data* inputData;
-		void* inputData;
+		ActiveData* inputData;
 		InputInterface event;
 		EventStage stage;
 		ActionFlag flags{};
 		//Need an unmoving flag here.
 
-		ActionData(void* data, InputInterface evt, EventStage stg) : inputData{ data }, event{ evt }, stage{ stg }
+		ActionData(ActiveData* data, InputInterface evt, EventStage stg) : inputData{ data }, event{ evt }, stage{ stg }
 		{
 
 		}
@@ -26,7 +27,7 @@ namespace DIMS
 	{
 		MatrixController* controller = nullptr;
 
-		EventData(MatrixController* ctrl, void* data, InputInterface evt, EventStage stg) : controller{ ctrl }, ActionData { data, evt, stg }
+		EventData(MatrixController* ctrl, ActiveData* data, InputInterface evt, EventStage stg) : controller{ ctrl }, ActionData { data, evt, stg }
 		{
 
 		}

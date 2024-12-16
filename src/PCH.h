@@ -120,6 +120,7 @@
 
 
 #include "Enums.h"
+#include "Settings.h"
 
 namespace DIMS
 {

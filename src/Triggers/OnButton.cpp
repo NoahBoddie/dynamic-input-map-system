@@ -13,6 +13,9 @@ namespace DIMS
 	bool OnButton::CanHandleEvent(RE::InputEvent* event, Argument* list) const
 	{
 		//Command maps resolve this, no need to query.
+
+		//return Input{ event } == list->As<Input>();
+
 		return true;
 	}
 

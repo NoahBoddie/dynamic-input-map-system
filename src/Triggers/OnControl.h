@@ -2,6 +2,8 @@
 
 #include "ITrigger.h"
 
+//*src
+#include "ActiveData.h"
 
 namespace DIMS
 {
@@ -20,6 +22,13 @@ namespace DIMS
 		//This is currently unused, so it should throw for now.
 
 		ControlID GetControl(Argument* list) const;
+
+
+		bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override
+		{
+			return data ? data->SecondsHeld() < Settings::comboPressTime : true;
+		}
+
 
 		bool CanHandleEvent(RE::InputEvent* event, Argument* list) const;
 

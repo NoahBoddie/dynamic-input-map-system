@@ -21,11 +21,41 @@ namespace DIMS
 
 		~ActiveCommand()
 		{
-			if (_state >= ActiveState::Managing) {
+			if constexpr (1) {
+				get_switch (state())
+				{
+				case ActiveState::Running:
+
+					logger::info("success - {}, {}", entry->DecSuccess(), id());
+					goto manage;
+
+				case ActiveState::Failing:
+					logger::info("failure - {}, {}", entry->DecFailure(), id());
+					goto manage;
+
+				case ActiveState::Managing:
+				manage:
+					logger::info("input - {}, {}", entry->DecInputRef(), id());
+					break;
+
+				default:
+					logger::info("* nothing, {} OR {}, {}", magic_enum::enum_name(switch_value), (int)switch_value, id());
+					break;
+					
+				}
+
+				return;
+			}
+			if (state() >= ActiveState::Managing) {
 				entry->DecInputRef();
 				
-				if (_state == ActiveState::Running)
+				if (state() == ActiveState::Running)
 					entry->DecSuccess();
+
+
+				if (state() == ActiveState::Failing)
+					entry->DecFailure();
+
 
 				logger::info("Ending active entry {}, entry name {}", _id, entry->command->name);
 			}
@@ -80,9 +110,9 @@ namespace DIMS
 		//Activates the input
 		void Activate()
 		{
-			int16_t val;
-			if (_state == ActiveState::Inactive) {
-				_state = ActiveState::Managing;
+			InputCount val;
+			if (state() == ActiveState::Inactive) {
+				SetState(ActiveState::Managing);
 				val = entry->IncInputRef();
 			}
 			else {
@@ -95,36 +125,26 @@ namespace DIMS
 		void Deactivate() const
 		{
 
-			switch (_state)
+			switch (state())
 			{
 			case ActiveState::Running:
 				entry->DecSuccess();
 				[[fallthrough]];
 			case ActiveState::Managing:
 				entry->IncFailure();
-				_state = ActiveState::Failing;
+				SetState(ActiveState::Failing);
+				logger::info("failing {}", id());
 				break;
 			}
-
-			int16_t val;
-			if (_state == ActiveState::Managing ||  _state == ActiveState::Running) {
-				_state = ActiveState::Managing;
-				val = entry->IncInputRef();
-			}
-			else {
-				val = entry->GetInputRef();
-			}
-
-			Update(val);
 		}
 
 	private:
-		void Update(int16_t in) const
+		void Update(InputCount in) const
 		{
 			if (entry->GetFailure() > 0)
 				Deactivate();
 
-			switch (_state)
+			switch (state())
 			{
 			default:
 			case ActiveState::Inactive:
@@ -133,8 +153,8 @@ namespace DIMS
 
 
 			case ActiveState::Managing:
-				if (!in) {
-					_state = ActiveState::Running;
+				if (entry->GetSuccess() || !in) {
+					SetState(ActiveState::Running);
 					entry->IncSuccess();
 				}
 				[[fallthrough]];
@@ -143,14 +163,6 @@ namespace DIMS
 			case ActiveState::Failing:
 				_inputs = in;
 				break;
-			}
-
-			return;
-
-			_inputs = in;
-
-			if (!in && _state == ActiveState::Managing) {
-				_state = ActiveState::Running;
 			}
 		}
 	public:
@@ -179,7 +191,14 @@ namespace DIMS
 		{
 			UpdateIfDirty();
 			
-			return _state == ActiveState::Running && !waiters;
+			return state() == ActiveState::Running && !waiters;
+		}
+
+		bool IsFailing() const
+		{
+			UpdateIfDirty();
+
+			return state() == ActiveState::Failing;
 		}
 
 
@@ -193,20 +212,60 @@ namespace DIMS
 
 		void tempname_IncWaiters()
 		{
+			_state |= ActiveState::Waited;
 			waiters++;
 		}
 
 
-		void tempname_DecWaiters()
+		int16_t tempname_DecWaiters()
 		{
-			waiters--;
+			waiters--; 
+			assert(waiters >= 0); 
+			return waiters;			
+		}
+
+		bool IsWaiting() const
+		{
+			return waiters;
+		}
+
+		bool HasWaited() const
+		{
+			return _state & ActiveState::Waited;
+		}
+
+		bool IsDelayUndone() const
+		{
+			return _state & ActiveState::DelayUndo;
+		}
+
+		void ClearWaiting() const
+		{
+			_state &= ~ActiveState::Waited;
+		}
+
+		void SetDelayUndone() const
+		{
+			_state |= ActiveState::DelayUndo;
+		}
+	protected:
+		ActiveState state() const
+		{
+			return _state & ~ActiveState::Flags;
+		}
+
+		void SetState(ActiveState value) const
+		{
+			auto flags = _state & ActiveState::Flags;
+			
+			_state = value | flags;
 		}
 
 	private:
 		
 		mutable ActiveState _state = ActiveState::Inactive;
 
-		mutable uint16_t _inputs;
+		mutable InputCount _inputs;
 
 		ID _id = nextID == -1 ? ++nextID : nextID++;//A simple way to
 

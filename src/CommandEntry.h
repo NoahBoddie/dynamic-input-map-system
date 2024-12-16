@@ -7,22 +7,35 @@
 namespace DIMS
 {
 
+	using InputCount = int8_t;
 
 	struct CommandEntry
 	{
 		//Prohibit this from EVER being copy constructed
 
 
-		//All of these can be 8 bit btw. You can't have more than 10 inputs per trigger.
+		
+		mutable uint32_t oldTimestamp = 0;
+
+		
+		//This method does not work. Multiple viable (and intended) inputs will not result in a very sound combination. The only solution
+		// is increasing the size of literally everything.
+		mutable int8_t _index = -1;
+
+
+		//Use negative counts to turn these off.
 
 		//I save some space if I make this the number of inputs it needs to complete (and also assert it needs to be 0 or above)
-		int16_t inputs = 1;			//This is how many things are currently interacting with this
-		int16_t success = 0;		//This is how many inputs need to happen before this is considered for active.
+		InputCount inputs = 1;			//This is how many things are currently interacting with this
+		InputCount success = 0;		//This is how many inputs need to happen before this is considered for active.
 		//TODO: Input is a bit large, you can only press so many buttons at once. Maybe curb the amount some.
 		
 		//If failure is not 0, you not to regard. Failure is SPECIFICALLY used when something like a delay function fails requirements like
 		// the amount of time required to
-		int16_t failure = 0;
+		InputCount failure = 0;
+
+		//This index is incremented just know this is cursed btw.
+
 
 		//Might have activeCount negative mean that it is unable to be used for the time being.
 		TriggerNode* trigger = nullptr;//because a command can have multiple trigger sets, something like this would be needed to differ them.
@@ -40,39 +53,55 @@ namespace DIMS
 			return inputs == 0;
 		}
 
-		int16_t GetInputRef() const { return inputs; }
+		void PushIndex() const
+		{
+			//With this I don't think I actually need waiters anymore
+			if (_index != -1)
+			{
+				if (++_index >= trigger->trigger_size())
+					_index = 0;
+
+			}
+		}
+
+		
+		uint8_t index() const
+		{
+			if (_index != -1) {
+				if (auto time = RE::GetDurationOfApplicationRunTime(); oldTimestamp != time) {
+					oldTimestamp = time;
+					_index = 0;
+				}
+			}
+
+			return _index;
+
+		}
 
 
-		int16_t GetSuccess() const { return success; }
-		int16_t GetFailure() const { return failure; }
+		InputCount GetInputRef() const { return inputs; }
+
+
+		InputCount GetSuccess() const { return success; }
+		InputCount GetFailure() const { return failure; }
 
 
 		//These are reversed due to 0 being valued as "all inputs active"
-		int16_t IncInputRef() { inputs--; assert(inputs >= 0); return inputs; }
+		InputCount IncInputRef() { inputs--; assert(inputs >= 0); return inputs; }
 
-		int16_t DecInputRef() { inputs++; assert(trigger->trigger_size() >= inputs); return inputs; }
+		InputCount DecInputRef() { inputs++; assert(trigger->trigger_size() >= inputs); return inputs; }
 
 
 		
-		int16_t IncSuccess() { success++; assert(trigger->trigger_size() >= success); return success; }
+		InputCount IncSuccess() { success++; assert(trigger->trigger_size() >= success); return success; }
 
-		int16_t DecSuccess() { success--;  assert(success >= 0); return success; }
+		InputCount DecSuccess() { success--;  assert(success >= 0); return success; }
 
-		int16_t IncFailure() { failure++; assert(trigger->trigger_size() >= failure); return failure; }
+		InputCount IncFailure() { failure++; assert(trigger->trigger_size() >= failure); return failure; }
 
-		int16_t DecFailure() { failure--;  assert(failure >= 0); return failure; }
+		InputCount DecFailure() { failure--;  assert(failure >= 0); return failure; }
 
 
-
-		bool AllowInput(Input input) const
-		{
-			return trigger->AllowInput(input);
-		}
-
-		bool AllowControl(ControlID control) const
-		{
-			return trigger->AllowControl(control);
-		}
 
 
 		//I need to move a lot of these back into the trigger nodes
@@ -176,9 +205,9 @@ namespace DIMS
 
 
 
-		bool CanHandleEvent(RE::InputEvent* event) const
+		bool CanHandleEvent(RE::InputEvent* event, bool push = true) const
 		{
-			return trigger->CanHandleEvent(event);
+			return trigger->CanHandleEvent(event, index());
 		}
 
 
@@ -231,11 +260,23 @@ namespace DIMS
 			return trigger->IsDelayable();
 		}
 
+
+		inline DelayState GetDelayState(InputInterface* input, ActiveData* data) const
+		{
+			return trigger->GetDelayState(input, data);
+		}
+
+
+		inline DelayState GetDelayState(InputInterface* input, ActiveData& data) const
+		{
+			return GetDelayState(input, &data);
+		}
+
 		//May not need
 		//bool IsDelayable() const{return trigger->trigger_size() > 1;}
 
 		//TODO: This needs to confirm these both come from the same space.
-		CommandEntry(InputCommand* cmd, TriggerNode* node) : trigger{ node }, command{ cmd }
+		CommandEntry(InputCommand* cmd, TriggerNode* node, bool a_control) : trigger{ node }, command{ cmd }, _index{ a_control ? 0 : -1 }
 		{
 			//assert(cmd->triggers...);
 			inputs = node->trigger_size();
@@ -243,4 +284,20 @@ namespace DIMS
 	};
 
 	using CommandEntryPtr = std::shared_ptr<CommandEntry>;
+
+
+	struct EntryIndexCleaner
+	{
+		CommandEntryPtr& entry;
+		
+		~EntryIndexCleaner()
+		{
+			entry->PushIndex();
+		}
+
+		EntryIndexCleaner(CommandEntryPtr& e) : entry{ e }
+		{
+
+		}
+	};
 }

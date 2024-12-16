@@ -2,6 +2,9 @@
 
 #include "ITrigger.h"
 
+//*src
+#include "ActiveData.h"
+
 namespace DIMS
 {
 	struct Argument;
@@ -22,6 +25,13 @@ namespace DIMS
 		//This is currently unused, so it should throw for now.
 
 		Input GetInput(Argument* list) const override;
+
+
+		bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override
+		{
+			return data ? data->SecondsHeld() < Settings::comboPressTime : true;
+		}
+
 
 		bool CanHandleEvent(RE::InputEvent* event, Argument* list) const override;
 
