@@ -122,7 +122,7 @@ namespace DIMS
 		}
 
 
-		std::pair<InputNumber, InputNumber> GetInputValues() const
+		std::pair<InputNumber, InputNumber> GetEventValues() const
 		{
 
 			switch (event->GetEventType())
@@ -146,6 +146,39 @@ namespace DIMS
 
 			
 		}
+
+
+		void SetEventValues(InputNumber value1, InputNumber value2) const
+		{
+
+			switch (event->GetEventType())
+			{
+			case RE::INPUT_EVENT_TYPE::kButton: {
+				auto button = event->AsButtonEvent();
+				button->value = value1;
+				button->heldDownSecs = value2;
+				break;
+			}
+			case RE::INPUT_EVENT_TYPE::kMouseMove: {
+				auto mouse = event->AsMouseMoveEvent();
+				mouse->mouseInputX = value1;
+				mouse->mouseInputY = value2;
+				break;
+			}
+
+			case RE::INPUT_EVENT_TYPE::kThumbstick: {
+				auto thumb = event->AsThumbstickEvent();
+				thumb->xValue = value1;
+				thumb->yValue = value2;
+			}
+			default:
+				//warn
+				break;
+			}
+
+
+		}
+
 
 
 		//Checks if an input event is an axis, either by user or by nature

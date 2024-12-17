@@ -13,9 +13,9 @@ namespace DIMS
 	{
 		//Prohibit this from EVER being copy constructed
 
-
+		inline static uint32_t globalTimestamp = -1;
 		
-		mutable uint32_t oldTimestamp = 0;
+		mutable uint32_t localTimestamp = -1;
 
 		
 		//This method does not work. Multiple viable (and intended) inputs will not result in a very sound combination. The only solution
@@ -64,15 +64,86 @@ namespace DIMS
 			}
 		}
 
-		
-		uint8_t index() const
+#pragma region GlobalIdea
+
+		//Instead of this, I think I want a function that checks if we are in static time, and if so increments (warning against exceeding 255).
+		// Then, once it decrements, it keeps decrementing until it eventually would be trying to decrement 0, to which it will simply set it to
+		// the value it's supposed to be
+
+		//Alternatively, -1 can be used as a  force clear. Meaning the next time this value is found, please re get both the global timestamp
+		// and the local time stamp
+
+		static void IncStaticTimestamp()
 		{
-			if (_index != -1) {
-				if (auto time = RE::GetDurationOfApplicationRunTime(); oldTimestamp != time) {
-					oldTimestamp = time;
-					_index = 0;
+			if (globalTimestamp <= 255)
+			{
+				//Past 255 it no longer a static timestamp
+				assert(globalTimestamp < 255);
+
+				globalTimestamp++;
+			}
+			else
+			{
+				globalTimestamp = 0;
+			}
+		}
+
+		static void DecStaticTimestamp()
+		{
+			if (globalTimestamp <= 255)
+			{
+				if (globalTimestamp == 0) {
+					globalTimestamp = -1;
+				}
+				else {
+					globalTimestamp--;
 				}
 			}
+		}
+
+
+		static uint32_t GetGlobalTimestamp()
+		{
+			if (globalTimestamp > 255)
+			{
+				globalTimestamp = RE::GetDurationOfApplicationRunTime();
+			}
+
+			return globalTimestamp;
+		}
+
+		uint32_t GetTimestamp()
+		{
+			auto time = GetGlobalTimestamp();
+
+			if (localTimestamp != time) {
+				localTimestamp = time;
+			}
+
+			return localTimestamp;
+		}
+
+
+		bool UpdateExecute() const
+		{
+			if (auto time = GetGlobalTimestamp(); localTimestamp != time) {
+				localTimestamp = time;
+				return true;
+			}
+
+			return false;
+		}
+		
+#pragma endregion
+
+		uint8_t index() const
+		{
+			//if (_index != -1) {
+			//	if (auto time = RE::GetDurationOfApplicationRunTime(); oldTimestamp != time) {
+			//		oldTimestamp = time;
+			//		_index = 0;
+			//	}
+			//}
 
 			return _index;
 
@@ -213,7 +284,10 @@ namespace DIMS
 
 		bool Execute(const EventData& data, EventFlag& flags) const
 		{
-			return command->Execute(data, flags);
+			if (UpdateExecute() == true)
+				return command->Execute(data, flags);
+
+			return false;
 		}
 
 

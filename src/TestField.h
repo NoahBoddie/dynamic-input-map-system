@@ -372,6 +372,8 @@ namespace DIMS
 		uint8_t preserve = 0;
 		bool isStrong = true;
 
+		bool _init = false;//This can be turned back off do note.
+
 		std::array<ActiveCommand::ID, EventStage::Total> blockCommands{};
 		
 
@@ -383,6 +385,23 @@ namespace DIMS
 		//If I could make some sort of struct that default creates a targeted object when accessed, that would be cool.
 		std::set<ActiveCommand::ID> delayCommands;
 		
+		void Initialize(InputNumber v1, InputNumber v2)
+		{
+			_init = true;
+
+			data.value1 = v1;
+			data.value2 = v2;
+			
+			data.timestamp = RE::GetDurationOfApplicationRunTime();
+		}
+
+		bool IsInitialized()
+		{
+			return _init;
+		}
+
+
+
 		auto& ObtainDelayCommands()
 		{
 			return delayCommands;
@@ -580,14 +599,16 @@ namespace DIMS
 					return false;
 				}
 			}
-			else
+			else 
 			{
-				auto t_stage = act_ptr->entry->GetTriggerFilter();
 
-				//If it doesn't have a finish stage and currently isn't running.
-				if (t_stage & ~(t_stage ^ EventStage::Finish) && act_ptr->IsRunning() == false)
-					act_ptr->Deactivate();
+				if (stage == EventStage::Finish) {
+					auto t_stage = act_ptr->entry->GetTriggerFilter();
 
+					//If it doesn't have a finish stage and currently isn't running.
+					if (t_stage & ~(t_stage ^ EventStage::Finish) && act_ptr->IsRunning() == false)
+						act_ptr->Deactivate();
+				}
 				if (auto failure = act_ptr->IsFailing(); !failure || !act_ptr->IsDelayUndone())
 				{
 					//Here is where I want to do failure checks. To which, it should have a force update on all stuff that was waiting.
@@ -844,10 +865,7 @@ namespace DIMS
 
 				if (!ptr) {
 					ptr = std::make_unique<ActiveInput>();
-					ptr->data.value1 = iValues.first;
-					ptr->data.value2 = iValues.second;
-
-					ptr->data.timestamp = RE::GetDurationOfApplicationRunTime();
+					ptr->Initialize(iValues.first, iValues.second);
 				}
 
 				input = ptr.get();
@@ -1155,6 +1173,37 @@ namespace DIMS
 			return delayList.size();
 		}
 
+		void CheckRelease(InputInterface& event, Input input)
+		{
+			std::unique_ptr<RE::InputEvent> dump;//This concept doesn't currently work, so I'm not really giving it any credit.
+
+			auto it = activeMap.begin();
+			auto end = activeMap.end();
+			it = activeMap.find(input);
+			
+			if (it == end)
+				return;
+
+
+			auto pair = event.GetEventValues();
+
+			if (it->second->IsInitialized() == false){
+				//This is for when tap comes into play. It's characterized by having an ActiveInput but no initialization.
+				logger::warn("This isn't supposed to happen yet");
+				it->second->Initialize(pair.first, pair.second);
+				return;
+			}
+
+			if (event->eventType == RE::INPUT_EVENT_TYPE::kButton)
+				event.SetEventValues(0, it->second->data.SecondsHeld());
+			else
+				event.SetEventValues(0, 0);
+
+			HandleEvent(event, dump);
+
+			event.SetEventValues(pair.first, pair.second);
+		}
+
 
 		bool HandleEvent(InputInterface event, std::unique_ptr<RE::InputEvent>& out)
 		{
@@ -1166,7 +1215,6 @@ namespace DIMS
 			//I think I'll put the interface object here, along with the event data.
 
 			
-			auto test = RE::GetDurationOfApplicationRunTime();
 			EventStage stage = event.GetEventStage();
 
 			if (stage == EventStage::None)
@@ -1178,8 +1226,12 @@ namespace DIMS
 
 			Input input{ event };
 
+			if (stage == EventStage::Start) {
+				CheckRelease(event, input);
+			}
 
-			ActiveInputHandle active_input{ input, activeMap, event.GetInputValues() };
+
+			ActiveInputHandle active_input{ input, activeMap, event.GetEventValues() };
 
 			//So what's the order to do?
 
@@ -1419,22 +1471,25 @@ namespace DIMS
 
 				active->VisitActiveCommands([&](ActiveCommand& act)
 				{
-					if (act.stages & EventStage::Finish) {
-						//This already processed a finish, no need.
-						return;
-					}
-					//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
-					// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
-					// computing needed to process things that will never come into success.
+					if (act->GetTriggerFilter() & EventStage::Finish)
+					{
+						if (act.stages & EventStage::Finish) {
+							//This already processed a finish, no need.
+							return;
+						}
+						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+						// computing needed to process things that will never come into success.
 
-					if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) {
-						//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+						if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) {
+							//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
-						EventData data{ this, nullptr, event, EventStage::Finish };
+							EventData data{ this, nullptr, event, EventStage::Finish };
 
-						if (!act.entry->Execute(data, flags)) {
-							//This should do something, but currently I'm unsure what exactly.
-							//allow_execute
+							if (!act.entry->Execute(data, flags)) {
+								//This should do something, but currently I'm unsure what exactly.
+								//allow_execute
+							}
 						}
 					}
 				});
