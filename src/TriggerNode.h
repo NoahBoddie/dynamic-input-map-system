@@ -133,7 +133,10 @@ namespace DIMS
 			return trig_info->GetDelayState(re_args, input, data);
 		}
 
-
+		uint32_t Precedence() const
+		{
+			return triggerInfo[type]->GetPrecedence(args.size());
+		}
 		
 	};
 

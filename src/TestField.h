@@ -335,7 +335,9 @@ namespace DIMS
 	
 	void tmp_say_a_nameNEW(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
 	{
-		auto report = std::format("Action: Name No. {} has been called on. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
+		auto report = std::format("Action: No. {} called. Stage: {}, time {:X}", 
+			param1.As<int32_t>(), magic_enum::enum_name(data.stage), RE::GetDurationOfApplicationRunTime());
+
 		logger::info("{}", report);
 		RE::DebugNotification(report.c_str(), "UIObjectiveNew");
 
@@ -343,7 +345,7 @@ namespace DIMS
 
 	void tmp_YELL_a_nameNEW(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
 	{
-		auto report = std::format("Action: Name No. {} has been called on. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
+		auto report = std::format("Action: No. {} called. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
 		logger::info("{}", report);
 		RE::DebugMessageBox(report.c_str());
 
@@ -375,7 +377,120 @@ namespace DIMS
 		bool _init = false;//This can be turned back off do note.
 
 		std::array<ActiveCommand::ID, EventStage::Total> blockCommands{};
-		
+		uint32_t highestPrecedence = 0;//The block delay is the highest level of delay priority active. If something is below this
+									// it cannot block other actions
+
+
+
+
+#pragma region new block funcs
+
+		void ClearBlockStages()
+		{
+			blockCommands = emptyBlock;
+			highestPrecedence = 0;
+		}
+
+		void FillBlockStages()
+		{
+			ClearBlockStages();
+
+			EventStage reqs = EventStage::None;
+
+			for (auto& command : sharedCommands)
+			{
+				if (reqs == EventStage::All)
+					break;
+
+				if (command.IsRunning() == false)
+					break;
+				
+				auto pred = highestPrecedence;
+
+				bool result = EmplaceBlockStages(command);
+
+				//Precedence has changed. previous value no longer value.
+				if (pred == highestPrecedence) {
+					reqs = EventStage::None;
+				}
+
+				if (result) {
+					reqs |= command->GetTriggerFilter();
+				}
+			}
+		}
+
+		//Note, a lot of remove block stages can be replaced with something that decrements waiters and removes stuff at once. Maybe combine the precedence check too.
+		void RemoveBlockStages(ActiveCommand& cmd)
+		{
+			auto remove_all = cmd->GetTriggerFilter() == EventStage::All;
+
+			if (!remove_all) {
+				for (int x = 1, y = 0; x < EventStage::Total; (x <<= 1), y++)
+				{
+					if (cmd.id() == blockCommands[y])
+					{
+						blockCommands[y] = 0;
+					}
+				}
+			}
+			if (!remove_all || blockCommands == emptyBlock)
+			{
+				FillBlockStages();
+			}
+		}
+
+		bool EmplaceBlockStages(ActiveCommand& cmd)
+		{
+
+			auto pred = cmd->Precedence();
+
+			if (pred > highestPrecedence){
+				ClearBlockStages();
+				highestPrecedence = pred;
+			}
+			else if (pred < highestPrecedence) {
+				return false;
+			}
+
+			auto emplace_array = blockCommands;
+
+			auto stages = cmd->GetTriggerFilter();
+
+			for (int x = 1, y = 0; x < EventStage::Total; (x <<= 1), y++)
+			{
+				if (stages & x)
+				{
+					auto& block_id = emplace_array[y];
+
+					if (cmd.id() == block_id)
+						continue;
+
+					switch (stages)
+					{
+					case EventStage::Start:
+					case EventStage::Repeating:
+					case EventStage::Finish:
+						if (!block_id)
+							block_id = cmd.id();
+						else
+							return false;
+
+
+					default:
+						break;
+					}
+				}
+			}
+
+			blockCommands = emplace_array;
+
+			return true;
+		}
+
+
+#pragma endregion
+
 
 		std::vector<ActiveCommand> sharedCommands;
 
@@ -438,6 +553,8 @@ namespace DIMS
 
 					if (delayed->entry->tmpname_ShouldWaitOnMe(*command.entry) == true) {
 						command.tempname_IncWaiters();
+
+						RemoveBlockStages(command);
 					}
 				}
 			}
@@ -475,6 +592,8 @@ namespace DIMS
 					if (act.entry->tmpname_ShouldWaitOnMe(*other.entry) == true) {
 						other.tempname_IncWaiters();
 
+						RemoveBlockStages(other);
+						continue;
 						//i'm just gonna do this shit manually for now ok? Im sleepy and hungry
 						//TODO: Make this a dedicated function
 						if (auto& blocker = blockCommands[0]; other.id() == blocker)
@@ -512,7 +631,7 @@ namespace DIMS
 						continue;
 
 					if (act.entry->tmpname_ShouldWaitOnMe(*other.entry) == true) {
-
+						//TODO: Here there seems to be some kind of loop that will ultimately cause the waiter on a particular item to time out. Unknown why
 						if (other.tempname_DecWaiters() == 0) {
 							//Here we refire all action related data.
 							//Here's another thought though, build playing catch up into the execution.
@@ -580,6 +699,8 @@ namespace DIMS
 				*block_id = cmd.id();
 			}
 
+			highestPrecedence = cmd->Precedence();
+
 			return true;
 		}
 
@@ -599,31 +720,30 @@ namespace DIMS
 					return false;
 				}
 			}
-			else 
+			else if (act_ptr->entry->IsDelayable() == true)
 			{
-
 				if (stage == EventStage::Finish) {
 					auto t_stage = act_ptr->entry->GetTriggerFilter();
 
 					//If it doesn't have a finish stage and currently isn't running.
-					if (t_stage & ~(t_stage ^ EventStage::Finish) && act_ptr->IsRunning() == false)
+					// I think this may not need to query if it has finish anymore, if it's not done by finish stage, it will never be done.
+					//if (t_stage & ~(t_stage ^ EventStage::Finish) && act_ptr->IsRunning() == false)
+					//if (act_ptr->entry->IsStageInTrigger(EventStage::Finish) == false && act_ptr->IsRunning() == false)
+					if (act_ptr->IsRunning() == false)
 						act_ptr->Deactivate();
 				}
-				if (auto failure = act_ptr->IsFailing(); !failure || !act_ptr->IsDelayUndone())
+
+
+				if (!act_ptr->IsRunning() && act_ptr->IsDelayUndone() == false)
 				{
-					//Here is where I want to do failure checks. To which, it should have a force update on all stuff that was waiting.
-					auto delay_state = !failure ?
-						act_ptr->entry->GetDelayState(nullptr, data) : act_ptr->entry->IsDelayable() ?
-						DelayState::Failure : DelayState::None;
+					DelayState delay_state = act_ptr->IsFailing() ? DelayState::Failure : act_ptr->entry->GetDelayState(nullptr, data);
+
 
 					if (delay_state == DelayState::Failure) {
 						//signify some failure.
 						FailDelayCommand(*act_ptr, stage);
 					}
-				}
-
-
-				
+				}	
 			}
 
 
@@ -632,8 +752,11 @@ namespace DIMS
 
 			ActiveCommand* command = act_ptr ? act_ptr : &act_cmd;
 			
-			if (cmd->ShouldBlockTriggers() && EmplaceBlockCommandID(*command) == false)
+			if (cmd->ShouldBlockTriggers() && EmplaceBlockStages(*command) == false)
 				return 0;
+
+			//if (cmd->ShouldBlockTriggers() && EmplaceBlockCommandID(*command) == false)
+			//	return 0;
 
 			if (!act_ptr) {
 				command = &AddCommand(act_cmd);
@@ -969,19 +1092,21 @@ namespace DIMS
 		{
 
 #define MAKE_INPUT(mc_action, mc_func, mc_aParam, mc_priority, mc_trigger, mc_conflict, mc_tFilter, mc_tParam)\
-			InputCommand* CONCAT(command,__LINE__) = new InputCommand;\
-			auto& CONCAT(action,__LINE__) = CONCAT(command,__LINE__)->actions.emplace_back();\
-			CONCAT(action,__LINE__).type = mc_action;\
-			auto& CONCAT(args,__LINE__) = CONCAT(action,__LINE__).args = std::make_unique<Argument[]>(3);\
-			CONCAT(args,__LINE__)[InvokeFunction::FUNCTION_PTR] = mc_func;\
-			CONCAT(args,__LINE__)[InvokeFunction::CUST_PARAM_1] = mc_aParam;\
-			auto& CONCAT(trigger,__LINE__) = CONCAT(command,__LINE__)->triggers.emplace_back();\
-			CONCAT(trigger,__LINE__).priority = mc_priority;\
-			CONCAT(trigger,__LINE__).type = mc_trigger;\
-			CONCAT(trigger,__LINE__).conflict = mc_conflict;\
-			CONCAT(trigger,__LINE__).stageFilter = mc_tFilter;\
-			CONCAT(trigger,__LINE__).args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = mc_tParam;\
-			something.push_back(CONCAT(command,__LINE__));
+			InputCommand* CONCAT(command,__LINE__) = new InputCommand; \
+			{\
+				auto& CONCAT(action, __LINE__) = CONCAT(command, __LINE__)->actions.emplace_back();\
+				CONCAT(action, __LINE__).type = mc_action; \
+				auto& CONCAT(args, __LINE__) = CONCAT(action, __LINE__).args = std::make_unique<Argument[]>(3); \
+				CONCAT(args, __LINE__)[InvokeFunction::FUNCTION_PTR] = mc_func; \
+				CONCAT(args, __LINE__)[InvokeFunction::CUST_PARAM_1] = mc_aParam; \
+				auto& CONCAT(trigger, __LINE__) = CONCAT(command, __LINE__)->triggers.emplace_back(); \
+				CONCAT(trigger, __LINE__).priority = mc_priority; \
+				CONCAT(trigger, __LINE__).type = mc_trigger; \
+				CONCAT(trigger, __LINE__).conflict = mc_conflict; \
+				CONCAT(trigger, __LINE__).stageFilter = mc_tFilter; \
+				CONCAT(trigger, __LINE__).args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = mc_tParam; \
+				something.push_back(CONCAT(command, __LINE__)); \
+			}
 
 
 			
@@ -1065,6 +1190,8 @@ namespace DIMS
 			trigger3.conflict = ConflictLevel::Defending;
 			trigger3.stageFilter = EventStage::Start;
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
+			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
 			
 			command3->name = "Silent 69";
 
@@ -1090,7 +1217,10 @@ namespace DIMS
 			std::vector<InputCommand*> something{ command1, command2, command3, command4, command5, command6 };
 
 
-			//MAKE_INPUT(ActionType::InvokeFunction, tmp_say_a_nameNEW, 20, 20, TriggerType::OnControl, ConflictLevel::Blocking, EventStage::Start, "Left Attack/Block");
+
+
+
+			MAKE_INPUT(ActionType::InvokeFunction, tmp_say_a_nameNEW, 20, 20, TriggerType::OnControl, ConflictLevel::Blocking, EventStage::Start, "Left Attack/Block");
 
 
 		
@@ -1199,7 +1329,12 @@ namespace DIMS
 			else
 				event.SetEventValues(0, 0);
 
+			//Incrementing and decrementing static time will allow this to not interfer with later entries.
+			CommandEntry::IncStaticTimestamp();
+
 			HandleEvent(event, dump);
+
+			CommandEntry::DecStaticTimestamp();
 
 			event.SetEventValues(pair.first, pair.second);
 		}
@@ -1289,53 +1424,17 @@ namespace DIMS
 					//TODO: asking for the id in emplacement might not be necessary, or continuing past emplacement.
 					ActiveCommand::ID id = 0;
 
-
-					if (1){//entry->GetTriggerFilter() & stage) {
-						//If it has multiple stages, blocks multiple actions.
-						if (entry->HasMultipleBlockStages() || entry->ShouldBlockTriggers() || entry->HasFinishStage())
-						{
-							if (active_input->EmplaceCommand(entry, stage, id) == false) {
-								return;
-							}
-						}
-						else if (entry->GetTriggerFilter() & stage) {
-							after_list.push_back(entry);
-						}
-						return;
-
-						//I think I'm actually going to put this in emplace.
-						if (!active_input->IsStageBlockedHashed(block_, hash, id, stage) || entry->ShouldBeBlocked() == false) {
-
-							EventData data{ this, nullptr, event, stage };
-
-							if (!entry->Execute(data, flags) ) {
-								//This should do something, but currently I'm unsure what exactly.
-								//allow_execute
-							}
-						}
-					}
-
-
-					return;
-
-					if (!blocking || entry->ShouldBeBlocked() == false) {
-						if (entry->GetTriggerFilter() & stage) {
-
-							EventData data{ this, nullptr, event, stage };
-
-							result = entry->Execute(data, flags);
-						}
-					}
-
-					//This isn't quite right, but the space just isn't ready for reprisal.
-					// The core problem is that the event effectively gets resent after active command gets it's update in.
-					if (entry->GetBlockingFilter() & stage)
+					//If it has multiple stages, blocks multiple actions.
+					// I feel this may need to be added even if it doesn't block triggers. Mainly because I'm unsure if there's a system to spot block
+					//
+					if (entry->HasMultipleBlockStages() || entry->ShouldBlockTriggers() || entry->HasFinishStage())
 					{
-						if (result)
-							allow_execute = false;
-
-						if (entry->ShouldBlockTriggers() == true)
-							blocking = true;
+						if (active_input->EmplaceCommand(entry, stage, id) == false) {
+							return;
+						}
+					}
+					else if (entry->GetTriggerFilter() & stage) {
+						after_list.push_back(entry);
 					}
 				}
 
@@ -1396,6 +1495,8 @@ namespace DIMS
 
 							auto trigger_stages = act->GetTriggerFilter();
 
+							bool executed = false;
+
 							for (EventStage i = waited ? EventStage::Start : stage; i <= stage; i <<= 1)
 							{
 								if (trigger_stages & i)
@@ -1403,18 +1504,19 @@ namespace DIMS
 									act.stages |= i;
 
 
-									if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), stage) || act.entry->ShouldBeBlocked() == false) {
+									if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false) {
 										//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
 										EventData data{ this, nullptr, event, i };
-
-										if (!act.entry->Execute(data, flags)) {
-											//This should do something, but currently I'm unsure what exactly.
-											//allow_execute
-										}
+										
+										act.entry->RepeatExecute(data, flags, executed);
 									}
 								}
 							}
+
+							if (stage == EventStage::Finish && act->IsStageInTrigger(EventStage::Finish))
+								assert(act.stages & EventStage::Finish);
+
 							act.ClearWaiting();
 						}
 

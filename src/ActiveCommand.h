@@ -201,6 +201,10 @@ namespace DIMS
 			return state() == ActiveState::Failing;
 		}
 
+		bool IsManaging() const
+		{
+			return !IsFailing() && !IsRunning() && state() != ActiveState::Inactive;
+		}
 
 		//16+1+1+1+4
 		mutable CommandEntryPtr entry;

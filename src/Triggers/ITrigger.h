@@ -46,6 +46,8 @@ namespace DIMS
 
 		virtual bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const = 0;
 
+		virtual uint32_t GetPrecedence(uint32_t a_input_size) const { return a_input_size; }
+
 		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const = 0;
 
 		//Something about parameters, but unsure how to cover that bit.
@@ -87,6 +89,8 @@ namespace DIMS
 			return 0;
 		}
 
+		virtual uint32_t GetPrecedence(uint32_t a_input_size) const override = 0;
+
 		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const override = 0;
 
 		virtual bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override { return true; }
@@ -98,6 +102,8 @@ namespace DIMS
 		{
 			return Input::CONTROL;
 		}
+
+		virtual uint32_t GetPrecedence(uint32_t a_input_size) const override = 0;
 
 		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const override = 0;
 
