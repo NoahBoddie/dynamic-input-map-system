@@ -61,8 +61,7 @@ namespace DIMS
 			switch (event->GetEventType())
 			{
 			case RE::INPUT_EVENT_TYPE::kButton:
-				if (auto button = event->AsButtonEvent())
-					return button->value;
+					return event->AsButtonEvent()->value;
 
 			case RE::INPUT_EVENT_TYPE::kMouseMove:
 			case RE::INPUT_EVENT_TYPE::kThumbstick:

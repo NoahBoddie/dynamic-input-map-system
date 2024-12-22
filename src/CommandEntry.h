@@ -23,7 +23,7 @@ namespace DIMS
 		//This method does not work. Multiple viable (and intended) inputs will not result in a very sound combination. The only solution
 		// is increasing the size of literally everything.
 		mutable uint8_t _index : 4 = invalidIndex;
-		mutable EventStage stagesVisit = EventStage::None;
+		mutable EventStage stagesVisit : 4 = EventStage::None;
 
 		//I'm clumping these together because they'll be used most together.
 
@@ -50,10 +50,10 @@ namespace DIMS
 		TriggerNode* trigger = nullptr;//because a command can have multiple trigger sets, something like this would be needed to differ them.
 		InputCommand* command = nullptr;
 
-		uint32_t priority()
+		uint64_t priority()
 		{
-			//Cache this result so it doesn't change midway through
-			return trigger->priority;
+			//Priority while 
+			return command->GetPriority(trigger->priority);
 		}
 
 
@@ -147,6 +147,16 @@ namespace DIMS
 			return false;
 		}
 
+		bool HasVisitedStage(EventStage stage)
+		{
+			return stagesVisit & stage;
+		}
+
+		bool HasRanThisFrame() const
+		{
+			return GetGlobalTimestamp() == localTimestamp;
+		}
+
 		void TryResetStages() const
 		{
 			if (trigger->trigger_size() == inputs) {
@@ -222,13 +232,13 @@ namespace DIMS
 
 		EventStage GetTriggerFilter() const
 		{
-			return trigger->GetStageFilter();
+			return trigger->GetStageFilter() | command->reqStage;
 		}
 
 
 		bool IsStageInTrigger(EventStage stage) const
 		{
-			return trigger->GetStageFilter() & stage;
+			return GetTriggerFilter() & stage;
 		}
 
 

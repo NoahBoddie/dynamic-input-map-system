@@ -9,6 +9,38 @@ using namespace SKSE::stl;
 
 #include "TestField.h"
 
+#include "xbyak/xbyak.h"
+
+using namespace DIMS;
+
+int IsCallOrJump(uintptr_t addr)
+{
+    //0x15 0xE8//These are calls, represented by negative numbers
+    //0x25 0xE9//These are jumps, represented by positive numbers.
+    //And zero represent it being neither.
+
+    if (addr)
+    {
+        auto first_byte = reinterpret_cast<uint8_t*>(addr);
+
+        switch (*first_byte)
+        {
+        case 0x15:
+        case 0xE8:
+            return -1;
+
+        case 0x25:
+        case 0xE9:
+            return 1;
+
+        }
+    }
+
+    return 0;
+}
+
+
+
 void InitializeLogging()
 {
 
@@ -54,15 +86,33 @@ void InitializeLogging()
 #endif
 }
 
+using EventSource = RE::BSTEventSource<RE::InputEvent*>;
+using EventSink = RE::BSTEventSink<RE::InputEvent*>;
+
+inline RE::BSTEventSink<RE::InputEvent*>* skseSink = nullptr;
 
 
 void InitializeMessaging() {
     if (!GetMessagingInterface()->RegisterListener([](MessagingInterface::Message* message) {
         switch (message->type) {
-        case MessagingInterface::kPostLoad:
+        case MessagingInterface::kInputLoaded: {
+            auto controls = RE::PlayerControls::GetSingleton();
+            auto& sinks = RE::BSInputDeviceManager::GetSingleton()->sinks;
+
+            for (int i = 0; i < sinks.size(); i++)
+            {
+                if (sinks[i] == controls) {
+                    assert(sinks.size() > i + 1);
+                    skseSink = sinks[i + 1];
+                    logger::info("SKSE sink found.");
+                    break;
+                }
+
+            }
 
             break;
             // It is now safe to do multithreaded operations, or operations against other plugins.
+        }
 
         case MessagingInterface::kPostPostLoad: // Called after all kPostLoad message handlers have run.
 
@@ -77,6 +127,7 @@ void InitializeMessaging() {
     }
 }
 
+
 struct InputHook
 {
     static void Install()
@@ -90,11 +141,11 @@ struct InputHook
     }
 
 
-    
+
     static void thunk(RE::PlayerControls* a_controls, RE::InputEvent* a_event)
     {
         std::unique_ptr<RE::InputEvent> out;
-
+        //RE::BSInputEventQueue;
 
         if (DIMS::testController->HandleEvent({ a_event, a_controls }, out) == false)
         {
@@ -160,11 +211,103 @@ struct ReleaseHook
     inline static REL::Relocation<decltype(thunk)> func;
 };
 
+struct SKSEInputHook
+{
+    static void Install()
+    {
+        //SE: 0xC15E00, AE: 0x000000, VR: ???
+        auto hook_addr = REL::RelocationID(67355, 00000).address() + 0x172;
+        
+        struct Code : Xbyak::CodeGenerator
+        {
+            Code(uintptr_t func, uintptr_t ret_addr)
+            {
+                mov(rax, func);
+                call(rax);
+                mov(ebp, eax);
+                mov(rax, ret_addr);
+                jmp(rax);
+                //ret();
+            }
+        } static code{ (uintptr_t)thunk, hook_addr + 0x5 };
+        
+        auto& trampoline = SKSE::GetTrampoline();
+
+        auto placed_call = IsCallOrJump(hook_addr) > 0;
+
+        //We can use write_call due to having just enough space to return.
+        auto place_query = trampoline.write_branch<5>(hook_addr, (uintptr_t)code.getCode());
+
+        //if (!placed_call)
+        //    func = (uintptr_t)code.getCode();
+        //else
+        //    func = place_query;
+
+
+        logger::info("SKSEInputHook complete...");
+    }
+
+    static RE::BSEventNotifyControl thunk(EventSink* a_this, RE::InputEvent** inputs, EventSource* source)
+    {
+        //This shit is messy sure, but I'll find a better way to do this eventually.
+
+        //Note, this is not only temporary, it's basically untenable.
+
+        //I also want this to work on other things registering for keys, just nothing from skyrim.
+
+        bool skse = false;
+        
+        
+        std::vector<std::unique_ptr<RE::InputEvent>> queue;
+
+        RE::InputEvent** overrides;
+        RE::InputEvent* input = *inputs;
+
+        
+        if (skseSink && a_this == skseSink && InputQueue::HasQueue() == true) {
+            skse = true;
+
+            queue = InputQueue::MoveQueue();
+
+            if (*inputs)
+            {   
+                overrides = inputs;
+
+
+                while (input->next) input = input->next;
+
+                input->next = queue.front().get();
+            }
+            else
+            {
+                overrides = reinterpret_cast<RE::InputEvent**>(queue.data());
+            }
+        }
+        else
+        {
+            overrides = inputs;
+        }
+       
+
+        
+
+        auto result = a_this->ProcessEvent(overrides, source);
+        
+        if (skse && input) {
+            input->next = nullptr;
+        }
+
+        return result;
+    }
+
+    inline static REL::Relocation<decltype(thunk)> func;
+};
 
 
 SKSEPluginLoad(const LoadInterface* skse) {
-
     InitializeLogging();
+    
+
 #ifdef _DEBUG
 
     
@@ -172,7 +315,7 @@ SKSEPluginLoad(const LoadInterface* skse) {
     if (GetKeyState(VK_RCONTROL) & 0x800) {
         constexpr auto text1 = L"Request for debugger detected. If you wish to attach one and press Ok, do so now if not please press Cancel.";
         constexpr auto text2 = L"Debugger still not detected. If you wish to continue without one please press Cancel.";
-        constexpr auto caption = L"Debugger Required";
+        constexpr auto caption = L"Debugger Required (DIMS)";
 
         int input = 0;
 
@@ -180,6 +323,11 @@ SKSEPluginLoad(const LoadInterface* skse) {
         {
             input = MessageBox(NULL, !input ? text1 : text2, caption, MB_OKCANCEL);
         } while (!IsDebuggerPresent() && input != IDCANCEL);
+    }
+
+
+    if (GetKeyState(VK_RCONTROL) & 0x800 && IsDebuggerPresent()) {
+        __debugbreak();
     }
 #endif
 
@@ -191,11 +339,11 @@ SKSEPluginLoad(const LoadInterface* skse) {
 
     InitializeMessaging();
 
-    SKSE::AllocTrampoline(14 *  2);
+    SKSE::AllocTrampoline(14 *  3);
 
     InputHook::Install();
     ReleaseHook::Install();
-
+    SKSEInputHook::Install();
 
     log::info("{} has finished loading.", plugin->GetName());
     return true;

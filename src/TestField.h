@@ -67,6 +67,8 @@ namespace DIMS
 	struct IMatrix
 	{
 		//Consult below.
+
+		
 	};
 
 	enum struct MatrixType
@@ -95,8 +97,33 @@ namespace DIMS
 		// followed by which one of these someone is using. Having no ownership will assign to whatever the loaded default is.
 		//std::string ownership;
 
+		std::vector<InputCommand> commands;//Once this is finalized, this cannot have it's values changed. so it should be private.
+
+		//When invoked, only commands with the same type of matrix type will be allowed used.
+		virtual bool CanInputPass(RE::InputEvent* event) const
+		{
+			return true;
+		}
+
 	};
 	
+	struct LayerMatrix : public InputMatrix
+	{
+		//Blocked user events are stored as device less id codes.
+		std::set<Input> blockedInputs;
+
+
+		bool CanInputPass(RE::InputEvent* event) const override
+		{
+			auto& event_name = event->QUserEvent();
+			Input input = event;
+
+			Input userEvent{ RE::INPUT_DEVICE::kNone, Hash(event_name.c_str(), event_name.length()) };
+
+			return !blockedInputs.contains(input) && !blockedInputs.contains(userEvent);
+		}
+	};
+
 
 	namespace
 	{
@@ -348,6 +375,13 @@ namespace DIMS
 		auto report = std::format("Action: No. {} called. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
 		logger::info("{}", report);
 		RE::DebugMessageBox(report.c_str());
+
+	}
+
+	void KillingMeSlowly(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	{
+		RE::PlayerCharacter::GetSingleton()->AsActorValueOwner()->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage,
+			RE::ActorValue::kHealth, -param1.As<float>() * RE::GetSecondsSinceLastFrame());
 
 	}
 	//
@@ -657,52 +691,7 @@ namespace DIMS
 
 		//TODO: Need a function to fail a command, which clears out the waiters.
 
-		//private
-		bool EmplaceBlockCommandID(const ActiveCommand& cmd)
-		{
-			if (cmd.entry->ShouldBlockTriggers() == false)
-				return true;
-
-			std::vector<ActiveCommand::ID*> adjust_list;
-
-			auto stages = cmd.entry->GetBlockingFilter();
-
-			for (int x = 1, y = 0; x < EventStage::Total; (x <<= 1), y++)
-			{
-				if (stages & x)
-				{
-					auto& block_id = blockCommands[y];
-
-					switch (stages)
-					{
-					case EventStage::Start:
-					case EventStage::Repeating:
-					case EventStage::Finish:
-						if (!block_id || cmd.id() == block_id)
-							goto jump;
-						
-						return false;
-
-
-					default:
-						break;
-
-					jump:
-						adjust_list.push_back(&block_id);
-						break;
-					}
-				}
-			}
-
-			for (auto block_id : adjust_list)
-			{
-				*block_id = cmd.id();
-			}
-
-			highestPrecedence = cmd->Precedence();
-
-			return true;
-		}
+	
 
 
 
@@ -722,14 +711,7 @@ namespace DIMS
 			}
 			else if (act_ptr->entry->IsDelayable() == true)
 			{
-				if (stage == EventStage::Finish) {
-					auto t_stage = act_ptr->entry->GetTriggerFilter();
-
-					//If it doesn't have a finish stage and currently isn't running.
-					// I think this may not need to query if it has finish anymore, if it's not done by finish stage, it will never be done.
-					//if (t_stage & ~(t_stage ^ EventStage::Finish) && act_ptr->IsRunning() == false)
-					//if (act_ptr->entry->IsStageInTrigger(EventStage::Finish) == false && act_ptr->IsRunning() == false)
-					if (act_ptr->IsRunning() == false)
+				if (!act_ptr->IsRunning()  && stage == EventStage::Finish) {
 						act_ptr->Deactivate();
 				}
 
@@ -748,7 +730,7 @@ namespace DIMS
 
 
 		
-			ActiveCommand act_cmd{ cmd, stage };
+			ActiveCommand act_cmd{ cmd };
 
 			ActiveCommand* command = act_ptr ? act_ptr : &act_cmd;
 			
@@ -761,9 +743,9 @@ namespace DIMS
 			if (!act_ptr) {
 				command = &AddCommand(act_cmd);
 			}
-			else if (command->entry->GetTriggerFilter() & stage) {
-				command->stages |= stage;
-			}
+			//else if (command->entry->GetTriggerFilter() & stage) {
+			//	command->stages |= stage;
+			//}
 
 			id = act_cmd.id();
 
@@ -821,18 +803,6 @@ namespace DIMS
 			return nullptr;
 		}
 
-		BlockingState GetBlockingState() const
-		{
-			return blockCommands == emptyBlock ?
-				BlockingState::None : isStrong ?
-				BlockingState::Strong : BlockingState::Weak;
-		}
-
-		bool IsBlocking() const { return GetBlockingState() != BlockingState::None; }
-
-		bool IsBlockingWeak() const { return GetBlockingState() == BlockingState::Weak; }
-		
-		bool IsBlockingStrong() const { return GetBlockingState() == BlockingState::Strong; }
 
 		/// <summary>
 		/// Checks if a given event stage is blocked.
@@ -843,6 +813,11 @@ namespace DIMS
 		bool IsStageBlocked(EventStage stage, bool trig)
 		{
 			if (trig) {
+				//TEMP: Testing if this would suffice better. Way I see it, if it's in here it blocks triggers.
+				auto inch = std::countr_zero(std::to_underlying(stage));
+				return blockCommands[inch];
+				
+				//DELETE~>
 				//For regular trig blocking you need to visit all active commands
 				if (auto cmd = GetBlockCommandFromStage(stage)) {
 					return cmd->entry->ShouldBlockTriggers();
@@ -1178,22 +1153,29 @@ namespace DIMS
 
 			InputCommand* command3 = new InputCommand;
 
-			auto& action3 = command3->actions.emplace_back();
-			action3.type = ActionType::InvokeFunction;
-			auto& args3 = action3.args = std::make_unique<Argument[]>(3);
-			args3[InvokeFunction::FUNCTION_PTR] = tmp_say_a_nameNEW;
-			args3[InvokeFunction::CUST_PARAM_1] = 69;
-
+			//auto& action3 = command3->actions.emplace_back();
+			//action3.type = ActionType::InvokeInput;
+			//action3.stageFilter = EventStage::Start;
+			//auto& args3 = action3.args = std::make_unique<Argument[]>(1);
+			//args3[InvokeInput::VIRTUAL_INPUT] = Input{ RE::INPUT_DEVICE::kKeyboard, 2 };
+			
+			auto& action3b = command3->actions.emplace_back();
+			action3b.type = ActionType::InvokeFunction;
+			auto& args3b = action3b.args = std::make_unique<Argument[]>(3);
+			args3b[InvokeFunction::FUNCTION_PTR] = KillingMeSlowly;
+			args3b[InvokeFunction::CUST_PARAM_1] = 15.0f;
+			
 			auto& trigger3 = command3->triggers.emplace_back();
 			trigger3.priority = 69;
 			trigger3.type = TriggerType::OnControl;
 			trigger3.conflict = ConflictLevel::Defending;
-			trigger3.stageFilter = EventStage::Start;
+			trigger3.stageFilter = EventStage::All;
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
 			
 			command3->name = "Silent 69";
+
 
 			InputCommand* command4 = new InputCommand;
 
@@ -1469,7 +1451,7 @@ namespace DIMS
 							if (!active_input->IsStageBlockedHashed(block_, hash, 0, stage) || entry->ShouldBeBlocked() == false) {
 								//if (!block_ || entry->ShouldBeBlocked() == false) {
 
-								EventData data{ this, nullptr, event, stage };
+								EventData data{ this, &active_input->data, event, stage };
 
 								if (!entry->Execute(data, flags)) {
 									//This should do something, but currently I'm unsure what exactly.
@@ -1484,7 +1466,8 @@ namespace DIMS
 					{
 						bool waited = act.HasWaited();
 
-						if (act.stages & stage || waited) {// if it's waited, maybe perform some of the previous.
+						//if (act.stages & stage || waited) // if it's waited, maybe perform some of the previous.
+						{
 
 							mid_function(&act);
 
@@ -1501,21 +1484,18 @@ namespace DIMS
 							{
 								if (trigger_stages & i)
 								{
-									act.stages |= i;
+									//act.stages |= i;
 
 
 									if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false) {
 										//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
-										EventData data{ this, nullptr, event, i };
+										EventData data{ this,  &active_input->data, event, i };
 										
 										act.entry->RepeatExecute(data, flags, executed);
 									}
 								}
 							}
-
-							if (stage == EventStage::Finish && act->IsStageInTrigger(EventStage::Finish))
-								assert(act.stages & EventStage::Finish);
 
 							act.ClearWaiting();
 						}
@@ -1546,6 +1526,7 @@ namespace DIMS
 		{
 			//Emplaces can be handled here. Please handle them.
 			
+			//TODO: HandleRelease has a small issue in that when it happens it happens regardless if it's actually been updated or not.
 
 			bool block_;
 
@@ -1575,7 +1556,8 @@ namespace DIMS
 				{
 					if (act->GetTriggerFilter() & EventStage::Finish)
 					{
-						if (act.stages & EventStage::Finish) {
+						//if (act.stages & EventStage::Finish) {
+						if (act->HasVisitedStage(EventStage::Finish) == true) {
 							//This already processed a finish, no need.
 							return;
 						}
@@ -1586,7 +1568,7 @@ namespace DIMS
 						if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) {
 							//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
-							EventData data{ this, nullptr, event, EventStage::Finish };
+							EventData data{ this, &active->data, event, EventStage::Finish };
 
 							if (!act.entry->Execute(data, flags)) {
 								//This should do something, but currently I'm unsure what exactly.

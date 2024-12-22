@@ -3,11 +3,14 @@
 #include "Actions/IAction.h"
 
 #include "Actions/InvokeFunction.h"
+#include "Actions/InvokeInput.h"
 
 namespace DIMS
 {
+	//Make an initialize here instead.
 	inline std::array<IAction*, ActionType::Total> actionInfo
 	{
-		new InvokeFunction
+		new InvokeFunction,
+		new InvokeInput,
 	};
 }

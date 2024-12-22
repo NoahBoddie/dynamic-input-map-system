@@ -5,6 +5,8 @@
 
 namespace DIMS
 {
+	class InputMatrix;
+
 	class InputCommand
 	{
 	public:
@@ -12,15 +14,23 @@ namespace DIMS
 		// That is, give it all the input information it needs to have to confirm it's the one.
 		std::vector<TriggerNode> triggers;
 
+		InputMatrix* parent = nullptr;
+
 		void* conditions = nullptr;
 
 		std::vector<ActionNode> actions;
 
 		ConflictLevel conflict = ConflictLevel::Sharing;
 		EventStage stageFilter = EventStage::All;			//Controls if the command actually does any actions
+		EventStage reqStage = EventStage::None;			//Stages required by actions on the command.
 		ActionRecovery recovery = ActionRecovery::Break;
 
 		std::string name;
+
+		uint64_t GetPriority(uint16_t value)
+		{
+			return value;
+		}
 
 		ConflictLevel GetConflictLevel() const
 		{

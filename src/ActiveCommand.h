@@ -61,14 +61,14 @@ namespace DIMS
 			}
 		}
 
-		ActiveCommand(CommandEntryPtr ptr, EventStage stg) : entry{ ptr }, stages{ stg }
+		ActiveCommand(CommandEntryPtr ptr) : entry{ ptr }
 		{
 
 		}
 
 		ActiveCommand(const ActiveCommand& other) = delete;
 	
-		ActiveCommand(ActiveCommand&& other) : entry{ other.entry }, stages{ other.stages }, _id{ other._id }, _inputs{ other._inputs },
+		ActiveCommand(ActiveCommand&& other) : entry{ other.entry }, _id{ other._id }, _inputs{ other._inputs },
 			_state{ std::exchange(other._state, ActiveState::Inactive) }, waiters{ other.waiters }
 		{
 			
@@ -79,7 +79,6 @@ namespace DIMS
 		ActiveCommand& operator=(const ActiveCommand& other)
 		{
 			entry = other.entry;
-			stages = other.stages;
 			_id = other._id;
 			waiters = other.waiters;
 			_inputs = other._inputs;
@@ -90,7 +89,6 @@ namespace DIMS
 		ActiveCommand& operator=(ActiveCommand&& other)
 		{
 			entry = other.entry;
-			stages = other.stages;
 			_id = other._id; 
 			waiters = other.waiters;
 			_inputs = other._inputs;
@@ -209,8 +207,6 @@ namespace DIMS
 		//16+1+1+1+4
 		mutable CommandEntryPtr entry;
 		
-		EventStage stages = EventStage::None;
-
 
 		int16_t waiters = 0;
 

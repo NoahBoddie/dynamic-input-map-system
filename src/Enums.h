@@ -45,7 +45,10 @@ namespace DIMS
 
 	ENUM(ActionType, uint8_t)
 	{
+
 		InvokeFunction,			//Invokes a C++ function. This one is personal, may make API for register
+		InvokeInput,			//Queues a virtual input for SKSE's papyrus to intercept (but not PlayerControls or MenuControls)
+		InvokeUserEvent,		//Queues a virtual user event for SKSE's papyrus to intercept (but not PlayerControls or MenuControls)
 		InvokeButton,			//Invokes an existing button
 		InvokeMouse,			//Invokes the mouse move event. Cannot use finish stage. Doing so will result in failure.
 		InvokeThumbstick,		//Invokes the thumbstick move event and calls basic. Cannot use finish events. Doing so will result in failure.
@@ -64,7 +67,7 @@ namespace DIMS
 		Break,			//Breaks on the first sign of failure. On Actions it will send a failure the moment it fails. Default of action.
 		Continue,		//Ignores failure and continues to return success.
 	};
-
+	
 
 	ENUM(EventStage, uint8_t)
 	{
@@ -75,6 +78,9 @@ namespace DIMS
 		
 		_Last,
 		Total = GetBitPosition(EventStage::_Last) + 1,//(EventStage::_Last - 1) << 1,
+
+
+		Preface = 1 << 3, //This serves as the action for tenative actions. When prefacing an execution, it will not allow multiple executions.
 
 		UntilFinish = EventStage::Start | EventStage::Repeating,
 		AfterStart = EventStage::Repeating | EventStage::Finish,
