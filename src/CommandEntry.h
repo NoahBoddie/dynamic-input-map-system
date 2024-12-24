@@ -168,6 +168,18 @@ namespace DIMS
 		{
 			localTimestamp = -1;
 		}
+
+		void TryMarkForRealease()
+		{
+			if (GetGlobalTimestamp() != localTimestamp) {
+				ResetExecute();
+			}
+		}
+
+		bool HasEarlyRelease() const
+		{
+			return localTimestamp == -1;
+		}
 		
 #pragma endregion
 

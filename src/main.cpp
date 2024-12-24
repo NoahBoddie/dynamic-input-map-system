@@ -211,6 +211,56 @@ struct ReleaseHook
     inline static REL::Relocation<decltype(thunk)> func;
 };
 
+//prologue
+struct QueueReleaseHook
+{
+    static void Install()
+    {
+        //SE: 0x705960, AE: 0x000000, VR: ???
+        auto hook_addr = REL::RelocationID(41273, 00000).address();
+        auto ret_addr = hook_addr + 0xB;
+        struct Code : Xbyak::CodeGenerator
+        {
+            Code(uintptr_t ret_addr)
+            {
+                sub(rsp, 0x28);
+                cmp(byte[rcx + 0xA0], 0);
+
+                mov(rax, ret_addr);
+                jmp(rax);
+               
+            }
+        } static code{ ret_addr };
+
+        auto& trampoline = SKSE::GetTrampoline();
+
+        auto placed_call = IsCallOrJump(hook_addr) > 0;
+
+        auto place_query = trampoline.write_branch<5>(hook_addr, (uintptr_t)thunk);
+
+        if (!placed_call)
+            func = (uintptr_t)code.getCode();
+        else
+            func = place_query;
+
+
+        logger::info("QueueReleaseHook complete...");
+    }
+
+    static void thunk(RE::PlayerControls* a_this)
+    {
+        //*This check might only work for other inputs, not these.
+        //if (a_this->unk0A0[0] != 0)
+        DIMS::testController->QueueRelease();
+
+        func(a_this);
+    }
+
+    inline static REL::Relocation<decltype(thunk)> func;
+};
+
+
+
 struct SKSEInputHook
 {
     static void Install()
@@ -339,11 +389,12 @@ SKSEPluginLoad(const LoadInterface* skse) {
 
     InitializeMessaging();
 
-    SKSE::AllocTrampoline(14 *  3);
+    SKSE::AllocTrampoline(14 *  4);
 
     InputHook::Install();
     ReleaseHook::Install();
     SKSEInputHook::Install();
+    QueueReleaseHook::Install();
 
     log::info("{} has finished loading.", plugin->GetName());
     return true;

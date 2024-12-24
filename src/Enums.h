@@ -10,7 +10,7 @@ namespace DIMS
 		size_t value = static_cast<size_t>(v);
 
 		if (value){
-			int8_t i = 0;
+			int8_t i = 1;
 			while (value != 1) i++, value >>= 1;
 			return i;
 		}
@@ -77,7 +77,7 @@ namespace DIMS
 		Finish = 1 << 2,
 		
 		_Last,
-		Total = GetBitPosition(EventStage::_Last) + 1,//(EventStage::_Last - 1) << 1,
+		Total = (EventStage::_Last - 1) << 1,
 
 
 		Preface = 1 << 3, //This serves as the action for tenative actions. When prefacing an execution, it will not allow multiple executions.
@@ -137,10 +137,11 @@ namespace DIMS
 		Running,		//Active command has confirmed all input requirements have been met and is allowed to run commands.
 		Failing,		//Active command was managing but has now failed, and will cease to run commands.
 
+		EarlyExit = 1 << 5,
 		DelayUndo = 1 << 6,
 		Waited = 1 << 7,
 		
-		Flags = ActiveState::DelayUndo | ActiveState::Waited,
+		Flags = ActiveState::EarlyExit | ActiveState::DelayUndo | ActiveState::Waited,
 	};
 
 	

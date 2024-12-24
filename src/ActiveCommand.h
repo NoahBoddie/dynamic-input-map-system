@@ -21,44 +21,27 @@ namespace DIMS
 
 		~ActiveCommand()
 		{
-			if constexpr (1) {
-				get_switch (state())
-				{
-				case ActiveState::Running:
+			get_switch (state())
+			{
+			case ActiveState::Running:
+				entry->DecSuccess();
+				goto manage;
 
-					logger::info("success - {}, {}", entry->DecSuccess(), id());
-					goto manage;
+			case ActiveState::Failing:
+				entry->DecFailure();
+				goto manage;
 
-				case ActiveState::Failing:
-					logger::info("failure - {}, {}", entry->DecFailure(), id());
-					goto manage;
-
-				case ActiveState::Managing:
-				manage:
-					logger::info("input - {}, {}", entry->DecInputRef(), id());
-					break;
-
-				default:
-					logger::info("* nothing, {} OR {}, {}", magic_enum::enum_name(switch_value), (int)switch_value, id());
-					break;
-					
-				}
-
-				return;
-			}
-			if (state() >= ActiveState::Managing) {
+			case ActiveState::Managing:
+			manage:
 				entry->DecInputRef();
-				
-				if (state() == ActiveState::Running)
-					entry->DecSuccess();
+				break;
 
-
-				if (state() == ActiveState::Failing)
-					entry->DecFailure();
-
-
-				logger::info("Ending active entry {}, entry name {}", _id, entry->command->name);
+			default:
+				//logger::info("* nothing, {} OR {}, {}", magic_enum::enum_name(switch_value), (int)switch_value, id());
+				break;
+					
 			}
+
 		}
 
 		ActiveCommand(CommandEntryPtr ptr) : entry{ ptr }
@@ -68,7 +51,7 @@ namespace DIMS
 
 		ActiveCommand(const ActiveCommand& other) = delete;
 	
-		ActiveCommand(ActiveCommand&& other) : entry{ other.entry }, _id{ other._id }, _inputs{ other._inputs },
+		ActiveCommand(ActiveCommand&& other) noexcept : entry{ other.entry }, _id{ other._id }, _inputs{ other._inputs },
 			_state{ std::exchange(other._state, ActiveState::Inactive) }, waiters{ other.waiters }
 		{
 			
@@ -248,6 +231,20 @@ namespace DIMS
 		{
 			_state |= ActiveState::DelayUndo;
 		}
+
+		void SetEarlyExit(bool value) const
+		{
+			if (value)
+				_state |= ActiveState::EarlyExit;
+			else 
+				_state &= ~ActiveState::EarlyExit;
+		}
+
+		bool HasEarlyExit() const
+		{
+			return _state & ActiveState::EarlyExit;
+		}
+
 	protected:
 		ActiveState state() const
 		{
@@ -265,7 +262,7 @@ namespace DIMS
 		
 		mutable ActiveState _state = ActiveState::Inactive;
 
-		mutable InputCount _inputs;
+		mutable InputCount _inputs = 0;
 
 		ID _id = nextID == -1 ? ++nextID : nextID++;//A simple way to
 

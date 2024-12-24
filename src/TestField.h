@@ -693,6 +693,72 @@ namespace DIMS
 
 	
 
+		void UpdateCommand(ActiveCommand& act, EventStage stage)
+
+		{//TODO: Make a different version of emplace function. I don't want this option exposed.
+
+			if (act.entry->IsDelayable() == true)
+			{
+				if (!act.IsRunning() && stage == EventStage::Finish) {
+					act.Deactivate();
+				}
+
+
+				if (!act.IsRunning() && act.IsDelayUndone() == false)
+				{
+					DelayState delay_state = act.IsFailing() ? DelayState::Failure : act.entry->GetDelayState(nullptr, data);
+
+
+					if (delay_state == DelayState::Failure) {
+						//signify some failure.
+						FailDelayCommand(act, stage);
+					}
+				}
+			}
+
+
+			if (act->ShouldBlockTriggers() == true)
+				EmplaceBlockStages(act);
+		}
+
+		void MakeCommand(CommandEntryPtr& cmd, EventStage stage)
+		{//TODO: Make a different version of emplace function. I don't want this option exposed.
+			if (GetCommandFromEntry(cmd) != nullptr)
+				return;
+
+
+			//This bit gets saved, but for what I do not know.
+			//cmd->GetFirstStage() < stage;
+
+
+			//This doesn't quite fit.
+			if (cmd->ShouldBeBlocked() && IsStagesBlocked(cmd->GetTriggerFilter()) == true) {
+				return;
+			}
+			
+
+			ActiveCommand act{ cmd };
+
+			if (cmd->ShouldBlockTriggers() && EmplaceBlockStages(act) == false)
+				return;
+
+			AddCommand(act);
+		}
+
+		void EmplaceCommandNEW(CommandEntryPtr cmd, EventStage stage)
+		{
+			if (stage == EventStage::Start) {
+				if (cmd->GetSuccess() == 0)
+					MakeCommand(cmd, stage);
+			}
+			else
+			{
+				auto act = GetCommandFromEntry(cmd);
+
+				if (act)
+					UpdateCommand(*act, stage);
+			}
+		}
 
 
 		//Returns the active id so one can check if they are the blocking one.
@@ -782,6 +848,22 @@ namespace DIMS
 			auto inch = std::countr_zero(std::to_underlying(stage));
 			return blockCommands[inch];
 		}
+
+		inline bool IsStagesBlocked(EventStage stage) const
+		{
+			if (stage)
+			{
+				for (auto x = 1, y = 0; x < EventStage::Total; x <<= 1, y++)
+				{
+					if (stage & x && blockCommands[y]) {
+						return true;
+					}
+
+				}
+			}
+			return false;
+		}
+
 
 		ActiveCommand* GetBlockCommandFromStage(EventStage stage)
 		{
@@ -1393,8 +1475,14 @@ namespace DIMS
 
 			//I think I should perhaps redo this bit. I think I would ONLY ever need this to retrieve viable options.
 
+
+
 			VisitLists([&](CommandEntryPtr entry, bool& should_continue)
 			{
+				//TODO:Big note here, this should not allow new inputs for a thing once when it's been declared success.
+				// The proposed situation where that happens is when some input is the hold out. So forgo it.
+
+
 				EntryIndexCleaner cleaner{ entry };//This cleaner increments when it dies.
 				
 				if (entry->CanHandleEvent(event))
@@ -1434,32 +1522,32 @@ namespace DIMS
 				//TODO: I just realized these don't really account for if they are supposed to be blocked.
 
 				auto mid_function = [&](ActiveCommand* act)
-					{
-						while (it != end) {
+				{
+					while (it != end) {
 
-							if (act && it->get()->priority() <= act->entry->priority())
-								break;
-
-
-							//I'm just going to boiler plate this cause I'm fucking lazy
-							//Also, testing this one out, no more check functions on stage blocking, updates will not be happening so best to do it here.
-
-							auto& entry = *(it++);
+						if (act && it->get()->priority() <= act->entry->priority())
+							break;
 
 
+						//I'm just going to boiler plate this cause I'm fucking lazy
+						//Also, testing this one out, no more check functions on stage blocking, updates will not be happening so best to do it here.
 
-							if (!active_input->IsStageBlockedHashed(block_, hash, 0, stage) || entry->ShouldBeBlocked() == false) {
-								//if (!block_ || entry->ShouldBeBlocked() == false) {
+						auto& entry = *(it++);
 
-								EventData data{ this, &active_input->data, event, stage };
 
-								if (!entry->Execute(data, flags)) {
-									//This should do something, but currently I'm unsure what exactly.
-									//allow_execute
-								}
+
+						if (!active_input->IsStageBlockedHashed(block_, hash, 0, stage) || entry->ShouldBeBlocked() == false) {
+							//if (!block_ || entry->ShouldBeBlocked() == false) {
+
+							EventData data{ this, &active_input->data, event, stage };
+
+							if (!entry->Execute(data, flags)) {
+								//This should do something, but currently I'm unsure what exactly.
+								//allow_execute
 							}
 						}
-					};
+					}
+				};
 
 				//I just want to say, this set up is literally fucking unhinged and I shold be ashamed of it.
 				active_input->VisitActiveCommands([&](ActiveCommand& act)
@@ -1490,8 +1578,10 @@ namespace DIMS
 									if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false) {
 										//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
-										EventData data{ this,  &active_input->data, event, i };
+										EventData data{ this, &active_input->data, event, i };
 										
+										act.SetEarlyExit(false);
+
 										act.entry->RepeatExecute(data, flags, executed);
 									}
 								}
@@ -1540,8 +1630,9 @@ namespace DIMS
 			//PLEASE note, delay event refiring cannot happen here as proper, because emplace command is not happening. So, 
 			// I need to divide that function in such a way that I can use it's components.
 
-			//*
 			for (auto it = activeMap.begin(); it != activeMap.end(); ) {
+				bool purge = true;
+				
 				auto dump = it->first;
 				auto& active = it->second;
 				
@@ -1561,6 +1652,12 @@ namespace DIMS
 							//This already processed a finish, no need.
 							return;
 						}
+
+						if (act.HasEarlyExit() == false) {
+							purge = false;
+							return;
+						}
+
 						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
 						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
 						// computing needed to process things that will never come into success.
@@ -1578,41 +1675,33 @@ namespace DIMS
 					}
 				});
 
-				
-				if (ClearActiveInput(it) == false) {
+				//Instead of passively purging, I think a good idea might be to force some of the activeCommands into failure after they've been
+				// marked. OR, mark them for Completion. They won't update, won't be considered running, just no longer needs to update.
+				if (!purge || ClearActiveInput(it) == false) {
 					++it;
 				}
 			}
-			//*/
+		}
+
+		void QueueRelease()
+		{
+			//*
+			for (auto it = activeMap.begin(); it != activeMap.end(); it++) {
 			
+				Input input = it->first;
+				auto& active = it->second;
 
-			return;
-			for (auto& [dump, active] : activeMap)
-			{
+				active->VisitActiveCommands([&](ActiveCommand& act)
+				{
+					//This actually needs to work for the individual active entry.
 
-				
-
-
-				//ClearActiveInput
-
-
-
-				//How do we do this exactly? call InputInterface?
-
-				//We could have an easy store of every device as well as every input or something like that. Soooo, active input.
-
-				//From there, we have a function that we fire off that basically updates every control that we currently have,
-				// we input stuff for controls the whole shebang and fire it off.
-				
-
-				//So basically it will be up to each ActiveInput to help resolve. But unlike skyrim we cant just leave because we don't have all
-				// active stuff loaded.
-
-				//HOWEVER, a good resolve for that might just be allowing for things to be added even if it isn't it's time. This might be prefered.
-				// the rule about the first stage must then change to "If the stage given is later than the first stage".
+					//For each entry active, try to mark it for release.
+					
+					//act->ResetExecute();
+					act.SetEarlyExit(true);
+				});
 			}
-
-			//An emergency release.
+			//*/
 		}
 	};
 

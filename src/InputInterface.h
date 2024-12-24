@@ -64,8 +64,14 @@ namespace DIMS
 					return event->AsButtonEvent()->value;
 
 			case RE::INPUT_EVENT_TYPE::kMouseMove:
-			case RE::INPUT_EVENT_TYPE::kThumbstick:
-				return 0;
+				return 0.f;
+
+			case RE::INPUT_EVENT_TYPE::kThumbstick: {
+				auto thumb = event->AsThumbstickEvent();
+				return sqrt(thumb->xValue * thumb->xValue + thumb->yValue * thumb->yValue);
+			}
+
+				
 
 			default:
 
