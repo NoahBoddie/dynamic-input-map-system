@@ -474,6 +474,7 @@ namespace DIMS
 			}
 		}
 
+
 		bool EmplaceBlockStages(ActiveCommand& cmd)
 		{
 
@@ -673,7 +674,8 @@ namespace DIMS
 							//Don't control what gets to go off by whether it has
 							ActiveCommand::ID dump;
 
-							EmplaceCommand(other.entry, stage, dump, &other);
+							//EmplaceCommand(other.entry, stage, dump, &other);
+							UpdateCommand(other, stage);
 						}
 
 
@@ -760,6 +762,14 @@ namespace DIMS
 			}
 		}
 
+
+		void Update(EventStage stage)
+		{
+			for (auto& act : sharedCommands)
+			{
+				UpdateCommand(act, stage);
+			}
+		}
 
 		//Returns the active id so one can check if they are the blocking one.
 		bool EmplaceCommand(CommandEntryPtr cmd, EventStage stage, ActiveCommand::ID& id, ActiveCommand* act_ptr = nullptr)
@@ -1499,9 +1509,10 @@ namespace DIMS
 					//
 					if (entry->HasMultipleBlockStages() || entry->ShouldBlockTriggers() || entry->HasFinishStage())
 					{
-						if (active_input->EmplaceCommand(entry, stage, id) == false) {
-							return;
-						}
+						active_input->EmplaceCommandNEW(entry, stage);
+						//if (active_input->EmplaceCommand(entry, stage, id) == false) {
+						//	return;
+						//}
 					}
 					else if (entry->GetTriggerFilter() & stage) {
 						after_list.push_back(entry);
@@ -1675,8 +1686,7 @@ namespace DIMS
 					}
 				});
 
-				//Instead of passively purging, I think a good idea might be to force some of the activeCommands into failure after they've been
-				// marked. OR, mark them for Completion. They won't update, won't be considered running, just no longer needs to update.
+				
 				if (!purge || ClearActiveInput(it) == false) {
 					++it;
 				}

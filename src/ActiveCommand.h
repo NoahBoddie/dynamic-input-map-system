@@ -187,12 +187,6 @@ namespace DIMS
 			return !IsFailing() && !IsRunning() && state() != ActiveState::Inactive;
 		}
 
-		//16+1+1+1+4
-		mutable CommandEntryPtr entry;
-		
-
-		int16_t waiters = 0;
-
 		void tempname_IncWaiters()
 		{
 			_state |= ActiveState::Waited;
@@ -257,6 +251,15 @@ namespace DIMS
 			
 			_state = value | flags;
 		}
+
+
+public:
+		//16+2+1+1+4
+		mutable CommandEntryPtr entry;
+
+
+		int16_t waiters = 0;
+
 
 	private:
 		
