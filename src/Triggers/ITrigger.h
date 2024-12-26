@@ -33,9 +33,9 @@ namespace DIMS
 
 		virtual bool IsControlTrigger() const = 0;
 
-		virtual Input GetInput(Argument* list) const = 0;
+		virtual Input GetInput(const Argument* list) const = 0;
 
-		virtual ControlID GetControl(Argument* list) const = 0;
+		virtual ControlID GetControl(const Argument* list) const = 0;
 
 		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const
 		{
@@ -61,7 +61,7 @@ namespace DIMS
 			return false;
 		}
 
-		ControlID GetControl(Argument*) const
+		ControlID GetControl(const Argument*) const override
 		{
 			return 0;
 		}
@@ -74,7 +74,7 @@ namespace DIMS
 			return true;
 		}
 
-		Input GetInput(Argument*) const override
+		Input GetInput(const Argument*) const override
 		{
 			return Input::CONTROL;
 		}
@@ -84,10 +84,6 @@ namespace DIMS
 	//An input trigger base that delays inputs by default. Instead, it doesn't consider combo when
 	struct DelayInputTriggerBase : public InputTriggerBase
 	{
-		ControlID GetControl(Argument*) const
-		{
-			return 0;
-		}
 
 		virtual uint32_t GetPrecedence(uint32_t a_input_size) const override = 0;
 
@@ -98,11 +94,6 @@ namespace DIMS
 
 	struct DelayComboControlTriggerBase : public ControlTriggerBase
 	{
-		Input GetInput(Argument*) const override
-		{
-			return Input::CONTROL;
-		}
-
 		virtual uint32_t GetPrecedence(uint32_t a_input_size) const override = 0;
 
 		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const override = 0;

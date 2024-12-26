@@ -253,7 +253,7 @@ namespace DIMS
 
 			}
 		}
-
+	public:
 
 		RE::InputEvent* const event{};
 		RE::PlayerControls* const controls{};

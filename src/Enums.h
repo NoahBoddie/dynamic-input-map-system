@@ -33,6 +33,20 @@ namespace DIMS
 
 
 
+	enum struct MatrixType
+	{
+		//Outdated.
+		Mode,			//The latest mode in the controller.
+		State,			//
+		//The relationship between ^ these is gonna have to be manual in terms of states blocking modes and such.
+
+		Dynamic,			//A matrix that is selected from the controls menu. Should be serialized outside of control map.
+		Selected,		//The default state. Default configurations attach to this, rather than the default made config
+
+		Total,
+	};
+
+
 	ENUM(TriggerType, uint8_t)
 	{
 		OnButton,
@@ -48,13 +62,15 @@ namespace DIMS
 
 		InvokeFunction,			//Invokes a C++ function. This one is personal, may make API for register
 		InvokeInput,			//Queues a virtual input for SKSE's papyrus to intercept (but not PlayerControls or MenuControls)
-		InvokeUserEvent,		//Queues a virtual user event for SKSE's papyrus to intercept (but not PlayerControls or MenuControls)
-		InvokeButton,			//Invokes an existing button
-		InvokeMouse,			//Invokes the mouse move event. Cannot use finish stage. Doing so will result in failure.
-		InvokeThumbstick,		//Invokes the thumbstick move event and calls basic. Cannot use finish events. Doing so will result in failure.
+		//InvokeUserEvent,		//Queues a virtual user event for SKSE's papyrus to intercept (but not PlayerControls or MenuControls)
+		//InvokeButton,			//Invokes an existing button
+		//InvokeMouse,			//Invokes the mouse move event. Cannot use finish stage. Doing so will result in failure.
+		//InvokeThumbstick,		//Invokes the thumbstick move event and calls basic. Cannot use finish events. Doing so will result in failure.
+	
+		//InvokeControl,			//Invokes a specific control by name.
+		//InvokeAxis,				//Invokes a specific axis by name. If the original function is called and is a finish event, it will result in failure
 
-		InvokeControl,			//Invokes a specific control by name.
-		InvokeAxis,				//Invokes a specific axis by name. If the original function is called and is a finish event, it will result in failure
+		InvokeMode,
 
 		Total,
 	};
@@ -76,8 +92,8 @@ namespace DIMS
 		Repeating = 1 << 1,
 		Finish = 1 << 2,
 		
-		_Last,
-		Total = (EventStage::_Last - 1) << 1,
+		Last,
+		Total = GetBitPosition(EventStage::Last),
 
 
 		Preface = 1 << 3, //This serves as the action for tenative actions. When prefacing an execution, it will not allow multiple executions.
@@ -114,7 +130,8 @@ namespace DIMS
 		None,			//Technically the same as sharing, but if a trigger has this, the action takes preference.
 		Sharing,		//Triggers registered as sharing will not block, or be stopped by blocking
 		Obliging,		//Obliging will not block other triggers, but is stopped by blocking
-		Guarding,		//Guarding will block original or basic triggers, but not most others. Will be blocked by capturing and blocking.
+		
+		Guarding,		//Guarding will not block triggers but will block basic events. Cannot be blocked.
 		Defending,		//Defending will block all basic events and triggers, but not most others. Will be blocked by capturing and blocking.
 		Blocking,		//Blocking will block the trigger events choosen, while also being stopped by other blocks
 		Capturing,		//Capturing will block all events in a trigger, regardless if it actually runs them, and will be blocked.

@@ -201,6 +201,8 @@ namespace DIMS
 
 		InputCount GetInputRef() const { return inputs; }
 
+		InputCount GetRealInputRef() const { return trigger->trigger_size() - GetInputRef(); }
+
 
 		InputCount GetSuccess() const { return success; }
 		InputCount GetFailure() const { return failure; }
@@ -274,10 +276,10 @@ namespace DIMS
 		{
 			switch (trigger->GetConflictLevel())
 			{
-			case ConflictLevel::Guarding:
 			case ConflictLevel::Blocking:
 				return GetTriggerFilter();
-
+			
+			case ConflictLevel::Guarding:
 			case ConflictLevel::Defending:
 			case ConflictLevel::Capturing:
 				return EventStage::All;
@@ -305,7 +307,6 @@ namespace DIMS
 		{
 			switch (trigger->GetConflictLevel())
 			{
-			case ConflictLevel::Guarding:
 			case ConflictLevel::Defending:
 				//Fallthrough
 			case ConflictLevel::Capturing:
@@ -323,6 +324,7 @@ namespace DIMS
 			{
 			case ConflictLevel::None:
 			case ConflictLevel::Sharing:
+			case ConflictLevel::Guarding:
 				return false;
 
 			default:

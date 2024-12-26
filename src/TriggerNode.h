@@ -49,13 +49,13 @@ namespace DIMS
 			&input[arg_index];
 		}
 
-		std::vector<Input> GetInputs()
+		std::vector<Input> GetInputs() const
 		{
 			//No numbers because it initializes with numbers
 			std::vector<Input> result{ };
 			result.resize(args.size());
 
-			std::transform(args.begin(), args.end(), result.begin(), [this](std::unique_ptr<Argument[]>& it)
+			std::transform(args.begin(), args.end(), result.begin(), [this](const std::unique_ptr<Argument[]>& it)
 				{
 					return triggerInfo[type]->GetInput(it.get());
 				});

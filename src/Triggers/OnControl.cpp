@@ -4,7 +4,7 @@
 
 namespace DIMS
 {
-	ControlID OnControl::GetControl(Argument* list) const
+	ControlID OnControl::GetControl(const Argument* list) const
 	{
 		return list[CONTROL_ID].As<ControlID>();
 	}

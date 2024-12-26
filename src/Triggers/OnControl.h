@@ -21,7 +21,7 @@ namespace DIMS
 
 		//This is currently unused, so it should throw for now.
 
-		ControlID GetControl(Argument* list) const;
+		ControlID GetControl(const Argument* list) const override;
 
 
 		bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override

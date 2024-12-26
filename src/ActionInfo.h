@@ -4,6 +4,7 @@
 
 #include "Actions/InvokeFunction.h"
 #include "Actions/InvokeInput.h"
+#include "Actions/InvokeMode.h"
 
 namespace DIMS
 {
@@ -12,5 +13,6 @@ namespace DIMS
 	{
 		new InvokeFunction,
 		new InvokeInput,
+		new InvokeMode,
 	};
 }

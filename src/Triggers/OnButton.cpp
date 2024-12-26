@@ -5,7 +5,7 @@
 namespace DIMS
 {
 
-	Input OnButton::GetInput(Argument* list) const
+	Input OnButton::GetInput(const Argument* list) const
 	{
 		return list[BUTTON_ID].As<Input>();
 	}
