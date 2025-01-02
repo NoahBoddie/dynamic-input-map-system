@@ -11,7 +11,7 @@ namespace DIMS
 
 	bool OnControl::CanHandleEvent(RE::InputEvent* event, Argument* list) const
 	{
-		auto hash = std::hash<std::string_view>{}(event->QUserEvent().c_str());
+		auto hash = Hash<HashFlags::Insensitive>(event->QUserEvent().c_str());
 
 		return GetControl(list) == hash;
 	}

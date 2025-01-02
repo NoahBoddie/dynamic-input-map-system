@@ -207,7 +207,7 @@ namespace DIMS
 
 		constexpr Argument(std::string_view str) noexcept
 		{
-			Set(std::hash<std::string_view>{}(str));
+			Set(Hash<HashFlags::Insensitive>(str));
 		}
 		constexpr Argument(const char* str) noexcept :Argument{ std::string_view{str} }
 		{}

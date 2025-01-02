@@ -78,6 +78,25 @@ namespace DIMS
 			return result;
 		}
 
+		//Returns both controls and inputs, with controls being designated with a null device
+		std::vector<Input> GetControlInputs()
+		{
+			std::vector<Input> result{ };
+	
+			result.resize(args.size());
+
+			std::transform(args.begin(), args.end(), result.begin(), [this](std::unique_ptr<Argument[]>& it)
+			{
+				if (IsControlTrigger() == true)
+					return Input{ RE::INPUT_DEVICE::kNone, triggerInfo[type]->GetControl(it.get()) };
+				else
+					return triggerInfo[type]->GetInput(it.get());
+			});
+
+			return result;
+		}
+
+
 
 
 		bool CanHandleEvent(RE::InputEvent* event, int8_t index) const

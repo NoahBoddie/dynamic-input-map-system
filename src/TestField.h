@@ -55,6 +55,146 @@ namespace DIMS
 
 
 
+	namespace detail
+	{
+		using VisitorList = std::vector<std::reference_wrapper<std::vector<std::shared_ptr<CommandEntry>>>>;
+		using VisitorFunc = std::variant<std::function<void(CommandEntry*, bool&)>, std::function<void(CommandEntryPtr, bool&)>>;
+	}
+
+	//This what hell looks like.
+	inline void VisitLists(detail::VisitorFunc func, detail::VisitorList& a_lists)
+	{
+		using ListIterator = std::vector<std::shared_ptr<CommandEntry>>::iterator;
+
+		using PairLIT = std::pair<ListIterator, ListIterator>;
+		//This should compound into another static list function, this one should be inline.
+
+		//The core idea behind this is basically that it will record and mind the priorities of each, treating them as if they are in the same list
+		// even if they aren't.
+
+
+		//std::vector lists{ std::ref(a_lists)... };
+
+		//std::array it_list{ std::make_pair(a_lists.begin(), a_lists.end())... };
+		//std::array end_list{ std::make_pair(a_lists.end(), a_lists.end())... };
+		auto size = a_lists.size();
+		if (!size)
+		{
+			return;
+		}
+
+
+		std::vector<PairLIT> it_list{ a_lists.size() };
+
+		std::vector<PairLIT> end_list{ a_lists.size() };
+
+
+		for (int i = 0; i < a_lists.size(); i++)
+		{
+			auto& list = a_lists[i];
+
+			auto begin = list.get().begin();
+			auto end = list.get().end();
+
+			it_list[i] = std::make_pair(begin, end);
+			end_list[i] = std::make_pair(end, end);
+		}
+
+
+
+		bool should_continue = true;
+
+		while (should_continue && it_list != end_list)
+		{
+
+			auto& iterator = std::max_element(it_list.begin(), it_list.end(), [](auto&& lhs, auto&& rhs)
+				{
+					if (rhs.first == rhs.second)
+						return false;
+
+					if (lhs.first == lhs.second)
+						return true;
+
+					return (*lhs.first)->priority() < (*rhs.first)->priority();
+				})->first;
+
+			//I'll likely want to keep this alive
+			std::shared_ptr<CommandEntry> entry = *(iterator++);
+
+
+			if (auto index = func.index(); index == 0)
+				std::get<0>(func)(entry.get(), should_continue);
+
+			else if (index == 1)
+				std::get<1>(func)(entry, should_continue);
+
+			else
+				throw std::exception("index not found?");
+
+			if (!should_continue)
+				break;
+
+		}
+	}
+
+
+	//Make this a non-template function with a template version. (Func can be changed to std::function that takes lambda that uses the func)
+	template <typename Func, std::same_as<std::vector<CommandEntryPtr>>... List>
+	void VisitListsTMPL(Func func, const List&... a_lists)
+	{
+		using TList = std::vector<std::shared_ptr<CommandEntry>>;
+
+		//This should compound into another static list function, this one should be inline.
+
+		//The core idea behind this is basically that it will record and mind the priorities of each, treating them as if they are in the same list
+		// even if they aren't.
+
+
+		//std::vector lists{ std::ref(a_lists)... };
+
+		std::array it_list{ std::make_pair(a_lists.begin(), a_lists.end())... };
+		std::array end_list{ std::make_pair(a_lists.end(), a_lists.end())... };
+
+		using TEMP1 = decltype(it_list);
+		using TEMP = TEMP1::value_type;//??? WHY DOES IT NEED TO WORK LIKE THIS?
+
+		while (it_list != end_list)
+		{
+
+			auto iterator = std::max_element(it_list.begin(), it_list.end(), [](auto&& lhs, auto&& rhs)
+				{
+					if (rhs.first == rhs.second)
+						return false;
+
+					if (lhs.first == lhs.second)
+						return true;
+
+					return (*lhs.first)->priority() < (*rhs.first)->priority();
+				})->first;
+
+			//I'll likely want to keep this alive
+			std::shared_ptr<CommandEntry> entry = *(++iterator);
+
+
+
+			using Result = std::invoke_result_t<Func, CommandEntry*>;
+
+			if constexpr (std::is_same_v<Result, void>)
+			{
+				func(entry.get());
+			}
+			else
+			{
+				bool go_on = func(entry.get());
+
+				if (!go_on)
+					break;
+
+
+			}
+		}
+	}
+
 	
 
 
@@ -74,9 +214,14 @@ namespace DIMS
 
 	struct IMatrix
 	{
+		virtual ~IMatrix() = default;
 		//Consult below.
-
 		
+		//When invoked, only commands with the same type of matrix type will be allowed used.
+		virtual bool CanInputPass(RE::InputEvent* event) const
+		{
+			return true;
+		}
 	};
 
 
@@ -98,12 +243,7 @@ namespace DIMS
 
 		std::vector<InputCommand> commands;//Once this is finalized, this cannot have it's values changed. so it should be private.
 
-		//When invoked, only commands with the same type of matrix type will be allowed used.
-		virtual bool CanInputPass(RE::InputEvent* event) const
-		{
-			return true;
-		}
-
+		
 		CommandMap CreateCommandMap()
 		{
 			CommandMap map;
@@ -148,6 +288,552 @@ namespace DIMS
 	};
 
 
+	struct StateController
+	{
+
+	};
+
+
+
+
+	struct InputState : public LayerMatrix
+	{
+		//This is a matrix setting that creates the setting
+		std::vector<InputState*> parents;
+
+		StateLevel level = StateLevel::Accord;
+		int16_t priority = 1;
+		tmp_Condition* condition = nullptr;
+		
+		std::string_view debugName;
+
+		std::set<Input> conflictList;
+
+		void tmpBuildConflictList()
+		{
+
+
+			for (auto& command : commands)
+			{
+				for (auto& trigger : command.triggers)
+				{
+					conflictList.insert_range(trigger.GetControlInputs());
+				}
+			}
+
+			for (auto parent : parents)
+			{
+				//This assumes that the previous has built it's own list.
+				conflictList.insert_range(parent->conflictList);
+			}
+		}
+
+		bool IsInConflict(const InputState* other) const
+		{
+			for (auto input : conflictList) {
+				other->conflictList.contains(input);
+			}
+		}
+
+		bool IsInConflict(const InputState& other)
+		{
+			return IsInConflict(&other);
+		}
+
+
+		bool DerivesFrom(const InputState* other) const
+		{
+			if (!other)
+				return false;
+
+			if (this == other)
+				return true;
+
+			for (auto parent : parents)
+			{
+				if (parent->DerivesFrom(other) == true)
+					return true;
+			}
+
+			return false;
+
+		}
+
+		bool CanInputPass(RE::InputEvent* event) const override
+		{
+			auto prev = __super::CanInputPass(event);
+
+			if (prev)
+			{
+				for (auto parent : parents)
+				{
+					if (parent->CanInputPass(event) == false) {
+						return false;
+					}
+				}
+			}
+
+			return prev;
+		}
+
+		bool tmpCheckCondition()
+		{
+			if (condition)
+				return condition(RE::PlayerCharacter::GetSingleton());
+			return true;
+		}
+	};
+
+	struct StateMap;
+
+	struct StateManager
+	{
+		//Manager doesn't quite represent what this is. A "default" state basically controls this.
+		// So basically one for menu, one for gameplay, maybe other states. The gist is this is a maker.
+
+
+
+		std::vector<std::unique_ptr<InputState>> storage;//The purpose of this is basically just storage
+
+		//std::vector<StateMap*> record;//Every state map it's ever lended to. May not be required.
+
+		std::vector<InputState*> headers;
+
+		InputState* CreateState(std::vector<InputState*> parents = {})
+		{
+			auto& result = storage.emplace_back(new InputState);
+
+
+			for (const auto& par : parents) {
+				headers.erase(std::remove(headers.begin(), headers.end(), par), headers.end());
+			}
+
+			headers.push_back(result.get());
+
+
+			return result.get();
+		}
+
+
+		StateMap CreateMap();
+	};
+
+	struct EntryState;
+
+	struct StateEntry//Won't be using this.
+	{
+		EntryState* first = nullptr;
+
+		size_t second = -1;
+
+		constexpr auto operator<=>(const StateEntry& other) const
+		{
+			return first <=> other.first;
+		}
+
+		StateEntry(EntryState* state, size_t n = -1) :first{ state }, second{ n }
+		{
+
+		}
+	};
+
+
+
+	struct EntryState : public IMatrix//There's no state entry because this is basically always active in this state
+	{
+		InputState* settings = nullptr;
+
+		//This carries the command map, and other ActiveState parents.
+
+		//This might be ignorable
+		std::vector<std::shared_ptr<EntryState>> parents;
+
+		CommandMap storage;
+
+		bool enabled = true;
+		uint32_t activeTimestamp = -1;
+
+		auto priority() const
+		{
+			return settings->priority;
+		}
+
+
+		auto level() const
+		{
+			return settings->level;
+		}
+
+
+		bool IsInConflict(EntryState* other) const
+		{
+			return settings->IsInConflict(other->settings);
+		}
+
+		void DisableInput()
+		{
+			//
+		}
+
+		void Activate()
+		{
+			activeTimestamp = RE::GetDurationOfApplicationRunTime();
+		}
+
+		void Deactivate()
+		{
+			activeTimestamp = -1;
+		}
+
+		uint32_t GetActivateTime() const
+		{
+			return activeTimestamp;
+		}
+
+		bool IsActive() const
+		{
+			return GetActivateTime();
+		}
+
+		bool HasActivatedThisFrame() const
+		{
+			return GetActivateTime() == RE::GetDurationOfApplicationRunTime();
+		}
+
+		//Only matters when the state is in the active area.
+		void SetEnabled(bool value)
+		{
+			if (enabled == value)
+				return;
+
+			for (auto& [key, list] : storage)
+			{
+				for (auto& command : list)
+				{
+					command->SetEnabled(value);
+				}
+			}
+		}
+
+
+		void Disable()
+		{
+			SetEnabled(false);
+		}
+
+		void Enable()
+		{
+			SetEnabled(true);
+		}
+
+		bool IsEnabled() const
+		{
+			return enabled;
+		}
+
+
+		bool CanInputPass(RE::InputEvent* event) const override
+		{
+			return settings->CanInputPass(event);
+		}
+
+		bool DerivesFrom(EntryState* other)
+		{
+			if (!other)
+				return false;
+
+			return settings->DerivesFrom(other->settings);
+
+		}
+
+
+		std::vector<EntryState*> GetViableStates(std::span<EntryState*>& limit)
+		{
+			//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
+			// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
+			
+
+			//It should be noted that having activated this frame is not grounds for 
+		
+			constexpr RefreshCode k_fakeUpdateCode = RefreshCode::Update;
+			constexpr RefreshCode k_fakeExpectedCode = RefreshCode::Update;
+
+			if (k_fakeUpdateCode != k_fakeExpectedCode ||  k_fakeUpdateCode != RefreshCode::Absolute) {
+				//If it's not within the expected update but it's currently active, it will just put it in there.
+				// I may actually just make a setting for this specifically to make it faster. For now, this will work.
+				auto end = limit.end();
+
+				if (std::find(limit.begin(), end, this) != end) {
+					return { this };
+				}
+				else
+					return {};
+			}
+
+			std::vector<EntryState*> result;
+
+
+
+
+			//The rule is that the states in question must remain above
+			if (settings->tmpCheckCondition() == true)
+				return { this };
+
+			
+			auto end = limit.end();
+
+			if (std::find(limit.begin(), end, this) != end) {
+				return {};
+			}
+		
+
+			for (auto parent : parents)
+			{
+				auto add = parent->GetViableStates(limit);
+
+				if (add.size() != 0)
+					result.append_range(add);
+			}
+
+			return result;
+		}
+
+		bool CheckConditions(std::span<StateEntry>& end)
+		{
+			
+		}
+
+		void LoadVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input)
+		{
+			if (IsEnabled() == false) {
+				return;
+			}
+
+			//else if (winner->level() == ??? && winner->IsInConflict(this) == true)
+			//{
+			//}
+
+			auto ctrl_it = storage.find(Input::CONTROL);
+			auto input_it = storage.find(input.hash());
+
+			auto end = storage.end();
+
+			//change these to AttemptToPull functions.
+			if (ctrl_it != end) {
+				list.push_back(std::ref(ctrl_it->second));
+			}
+
+			if (input_it != end) {
+				list.push_back(std::ref(input_it->second));
+			}
+
+
+			for (auto& parent : parents)
+			{
+				parent->LoadVisitorList(list, event, input);
+			}
+
+			
+		}
+
+		EntryState(InputState* state) : settings{ state }
+		{
+			storage = settings->CreateCommandMap();
+
+			//Disable();
+		}
+	};
+
+	//Probably just going to use these names as members.
+	//using StateHeader = std::unique_ptr<ActiveState>;
+	//using ShareState = std::shared_ptr<ActiveState>;
+
+
+	struct StateMap
+	{
+		//This carries the unique pointers of active states
+		
+		//These are the childless active states, who collectively maintain the existence
+		std::vector<std::unique_ptr<EntryState>> headers;
+		
+		//I'm unsure if this should be shared or not. The unique pointers existing makes sure these will not die, so I guess
+		// this is good.
+
+
+		
+
+		//The active state notes which entry it comes from
+		std::vector<EntryState*> activeStates;
+
+
+		uint32_t updateTimestamp = 0;
+		//Active states
+
+
+		float SecondsSinceLastUpdate()
+		{
+			return (RE::GetDurationOfApplicationRunTime() - updateTimestamp) / 1000.f;
+		}
+
+		void tmpUpdate(RefreshCode code)
+		{
+			std::span<EntryState*> limits = activeStates;
+
+			//This should only be made once we're sure that there's actually even gonna be an update.
+			// To this, each time the real update is called, it will be associated with an update event. If one of those update event's match the code given,
+			// it will attempt to update.
+
+			//Correction, if it's within the sp
+			std::vector<EntryState*> updateList;
+
+
+
+			//I think while updating, if the headers don't say they want to update, we just take a span of their data, and add it into the span.
+			for (int i = 0; i < headers.size(); i++)
+			{
+				auto& header = headers[i];
+				//How do we handle updates?
+ 				//First, we get the 
+				//if ()
+				updateList.append_range(header->GetViableStates(limits));
+			}
+
+			std::sort(updateList.begin(), updateList.end());
+
+			auto it = std::unique(updateList.begin(), updateList.end());
+
+			updateList.erase(it, updateList.end());
+
+			activeStates = updateList;
+
+			//Sorting needs to happen here.
+
+			//This can actually go in GetViableStates, especially since it needs nothing but a check for what can be included.
+			// For now, i'm fine doing it here.
+			if (activeStates.size() != 0)
+			{
+				EntryState* win_state;
+
+				StateLevel level;
+
+				bool first = true;
+
+				for (auto state : activeStates)
+				{
+					if (first) {
+						win_state = state;
+						level = state->level();
+						first = false;
+						continue;
+					}
+
+					bool leave;
+
+					switch (state->level())
+					{
+					case StateLevel::Merge:
+					case StateLevel::Accord:
+					case StateLevel::Clobber:
+						switch (level)
+						{
+						case StateLevel::Clobber:
+							if (win_state->IsInConflict(state) == false)
+								continue;
+						case StateLevel::Smash:
+							break;
+
+						default:
+							continue;
+						}
+						
+						[[fallthrough]];
+					case StateLevel::Collapse:
+					case StateLevel::Smash:
+						state->Disable();
+						break;
+					}
+
+				}
+			}
+			
+		}
+
+		void CheckUpdate()
+		{
+			if (SecondsSinceLastUpdate() >= Settings::updateTime) {
+				
+				updateTimestamp = RE::GetDurationOfApplicationRunTime();
+				tmpUpdate(RefreshCode::Update);//We are updating under the event of OnTick.
+			}
+		}
+
+		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input)
+		{
+			CheckUpdate();
+			
+			bool result = true;
+
+			//Now that I think about it, the way this is set up, any state that can run
+			for (auto state : activeStates)
+			{
+				if (!state)
+					continue;
+
+				state->LoadVisitorList(list, event, input);
+				
+				if (state->CanInputPass(event) == false)
+					result = false;
+			}
+
+			return result;
+		}
+
+	};
+
+
+	inline EntryState* MakeActiveState(InputState* state, std::unordered_map<InputState*, EntryState*>& manifest)
+	{
+		auto& loc = manifest[state];
+
+		if (!loc)
+		{
+			loc = new EntryState(state);//Handle command creation here.
+			loc->settings = state;
+
+
+			for (auto parent : state->parents)
+			{
+				auto par = MakeActiveState(parent, manifest);
+
+				loc->parents.push_back(std::shared_ptr<EntryState>(par));
+			}
+		}
+
+		return std::move(loc);
+	}
+
+	inline std::unique_ptr<EntryState> MakeUniqueActiveState(InputState* state, std::unordered_map<InputState*, EntryState*>& manifest)
+	{
+		return std::unique_ptr<EntryState>(MakeActiveState(state, manifest));
+	}
+
+	inline StateMap StateManager::CreateMap()
+	{
+		StateMap result;
+
+		std::unordered_map<InputState*, EntryState*> manifest;
+
+		
+		for (auto header : headers)
+		{
+			result.headers.push_back(MakeUniqueActiveState(header, manifest));
+		}
+
+		return result;
+	}
+
+
+
 	namespace
 	{
 		std::unordered_map<Input::Hash, std::vector<std::string>> tmp_Controls;
@@ -160,146 +846,6 @@ namespace DIMS
 	}
 
 
-
-	namespace detail
-	{
-		using VisitorList = std::vector<std::reference_wrapper<std::vector<std::shared_ptr<CommandEntry>>>>;
-		using VisitorFunc = std::variant<std::function<void(CommandEntry*, bool&)>, std::function<void(CommandEntryPtr, bool&)>>;
-	}
-
-	//This what hell looks like.
-	inline void VisitLists(detail::VisitorFunc func, detail::VisitorList& a_lists)
-	{
-		using ListIterator = std::vector<std::shared_ptr<CommandEntry>>::iterator;
-
-		using PairLIT = std::pair<ListIterator, ListIterator>;
-		//This should compound into another static list function, this one should be inline.
-
-		//The core idea behind this is basically that it will record and mind the priorities of each, treating them as if they are in the same list
-		// even if they aren't.
-
-
-		//std::vector lists{ std::ref(a_lists)... };
-
-		//std::array it_list{ std::make_pair(a_lists.begin(), a_lists.end())... };
-		//std::array end_list{ std::make_pair(a_lists.end(), a_lists.end())... };
-		auto size = a_lists.size();
-		if (!size)
-		{
-			return;
-		}
-
-
-		std::vector<PairLIT> it_list{ a_lists.size() };
-
-		std::vector<PairLIT> end_list{ a_lists.size() };
-
-
-		for (int i = 0;  i < a_lists.size(); i++)
-		{
-			auto& list = a_lists[i];
-
-			auto begin = list.get().begin();
-			auto end = list.get().end();
-
-			it_list[i] = std::make_pair(begin, end);
-			end_list[i] = std::make_pair(end, end);
-		}
-
-
-
-		bool should_continue = true;
-
-		while (should_continue && it_list != end_list)
-		{
-
-			auto& iterator = std::max_element(it_list.begin(), it_list.end(), [](auto&& lhs, auto&& rhs)
-				{
-					if (rhs.first == rhs.second)
-						return false;
-
-					if (lhs.first == lhs.second)
-						return true;
-
-					return (*lhs.first)->priority() < (*rhs.first)->priority();
-				})->first;
-
-			//I'll likely want to keep this alive
-			std::shared_ptr<CommandEntry> entry = *(iterator++);
-
-
-			if (auto index = func.index(); index == 0)
-				std::get<0>(func)(entry.get(), should_continue);
-
-			else if (index == 1)
-				std::get<1>(func)(entry, should_continue);
-
-			else
-				throw std::exception("index not found?");
-
-			if (!should_continue)
-				break;
-		
-		}
-	}
-
-
-	//Make this a non-template function with a template version. (Func can be changed to std::function that takes lambda that uses the func)
-	template <typename Func, std::same_as<std::vector<CommandEntryPtr>>... List>
-	void VisitListsTMPL(Func func, const List&... a_lists)
-	{
-		using TList = std::vector<std::shared_ptr<CommandEntry>>;
-
-		//This should compound into another static list function, this one should be inline.
-		
-		//The core idea behind this is basically that it will record and mind the priorities of each, treating them as if they are in the same list
-		// even if they aren't.
-
-
-		//std::vector lists{ std::ref(a_lists)... };
-
-		std::array it_list{ std::make_pair(a_lists.begin(), a_lists.end())... };
-		std::array end_list{ std::make_pair(a_lists.end(), a_lists.end())... };
-
-		using TEMP1 = decltype(it_list);
-		using TEMP = TEMP1::value_type;//??? WHY DOES IT NEED TO WORK LIKE THIS?
-
-		while (it_list != end_list)
-		{
-
-			auto iterator = std::max_element(it_list.begin(), it_list.end(), [](auto&& lhs, auto&& rhs)
-			{
-				if (rhs.first == rhs.second)
-					return false;
-
-				if (lhs.first == lhs.second)
-					return true;
-
-				return (*lhs.first)->priority() < (*rhs.first)->priority();
-			})->first;
-
-			//I'll likely want to keep this alive
-			std::shared_ptr<CommandEntry> entry = *(++iterator);
-
-
-
-			using Result = std::invoke_result_t<Func, CommandEntry*>;
-
-			if constexpr (std::is_same_v<Result, void>)
-			{
-				func(entry.get());
-			}
-			else
-			{
-				bool go_on = func(entry.get());
-
-				if (!go_on)
-					break;
-
-
-			}
-		}
-	}
 
 
 	//Specific polymorphic types like this likely will not exist.
@@ -804,7 +1350,7 @@ namespace DIMS
 
 				act.SetDelayUndone();
 			}
-
+			act.Deactivate();
 		}
 
 
@@ -1154,6 +1700,17 @@ namespace DIMS
 	inline LayerMatrix* testMode = new LayerMatrix;
 
 
+
+
+
+	inline StateManager testManager;
+
+
+
+
+
+
+
 	class MatrixController
 	{
 	public:
@@ -1180,10 +1737,7 @@ namespace DIMS
 
 		CommandMap dynamicMap;
 
-		CommandMap stateMap;
-
-
-		std::vector<InputMatrix*> stateMatrices;
+		StateMap stateMap;
 
 		//Used the command entry pointer instead
 
@@ -1273,11 +1827,12 @@ namespace DIMS
 			switch (type)
 			{
 			case MatrixType::Selected:
-			case MatrixType::State:
 
 			default:
 				return true;
-
+			
+			case MatrixType::State:
+				return stateMap.PrepVisitorList(list, event, input);
 
 			case MatrixType::Mode: {
 				ModeMap* mode = GetCurrentMode();
@@ -1544,7 +2099,6 @@ namespace DIMS
 
 			}
 
-
 			//dynamicMap[Input{ RE::INPUT_DEVICE::kMouse, 0 }].emplace;
 			//dynamicMap[Input{ RE::INPUT_DEVICE::kMouse, 1 }] = {};
 		}
@@ -1669,13 +2223,7 @@ namespace DIMS
 
 			ActiveInputHandle active_input{ input, activeMap, event.GetEventValues() };
 
-			//So what's the order to do?
-
-			//StatePremode
-			//Mode
-			//StatePostmode
-			//Dynamic
-
+			
 
 			EventFlag flags = EventFlag::None;
 
@@ -1703,17 +2251,15 @@ namespace DIMS
 				}
 
 				
-
 				VisitLists([&](CommandEntryPtr entry, bool& should_continue)
 				{
-					//TODO:Big note here, this should not allow new inputs for a thing once when it's been declared success.
-					// The proposed situation where that happens is when some input is the hold out. So forgo it.
-
-
 					EntryIndexCleaner cleaner{ entry };//This cleaner increments when it dies.
 
-					if (entry->CanHandleEvent(event))
-					{
+					if (entry->GetRealInputRef() > 1) {
+						entry->IsActive();
+					}
+
+					if (!entry->IsActive() && entry->CanHandleEvent(event) == true){
 						active_input->MakeCommand(entry, stage);
 					}
 
@@ -1872,10 +2418,10 @@ namespace DIMS
 
 						if (act->GetSuccess() > 1) {
 							//We'll want to let input go but not fire the action.
-							logger::info("Retaining at success level {}", act->GetSuccess());
+							logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
 							return;
 						}
-						logger::info("Releasing at success level {}", act->GetSuccess());
+						logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
 
 
 						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
@@ -1923,7 +2469,54 @@ namespace DIMS
 			//*/
 		}
 	};
+	
 
 	inline MatrixController* testController = new MatrixController;
 	inline std::array<MatrixController*, (int)ControlType::Total> Controllers;
+
+
+
+	inline void LoadTestManager()
+	{
+		auto isCrouched = [](RE::PlayerCharacter* player)
+			{
+				return player->AsActorState()->IsSneaking();
+			};
+
+		{
+			auto stateCrouch = testManager.CreateState();
+
+			stateCrouch->condition = isCrouched;
+			stateCrouch->debugName = "Crouching";
+			stateCrouch->priority = 26;
+			stateCrouch->blockedInputs;
+			stateCrouch->blockedInputs = {
+					Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
+			};
+
+			stateCrouch->commands.reserve(10);
+			InputCommand* commandA = &stateCrouch->commands.emplace_back();
+			//InputCommand* commandB = &stateCrouch->commands.emplace_back();
+
+
+
+			auto& actionA = commandA->actions.emplace_back();
+			actionA.type = ActionType::InvokeFunction;
+			auto& argsA = actionA.args = std::make_unique<Argument[]>(3);
+			argsA[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsA[InvokeFunction::CUST_PARAM_1] = 26;
+
+			auto& triggerA = commandA->triggers.emplace_back();
+			triggerA.priority = 26;
+			triggerA.type = TriggerType::OnControl;
+			triggerA.conflict = ConflictLevel::Defending;
+			triggerA.stageFilter = EventStage::Start;
+			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+
+		}
+
+		testController->stateMap = testManager.CreateMap();
+	}
+
+
 }

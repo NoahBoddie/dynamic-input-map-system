@@ -5,5 +5,6 @@ namespace DIMS
 	struct Settings
 	{
 		static constexpr float comboPressTime = 0.06f;
+		static constexpr float updateTime = 0.75f;
 	};
 }

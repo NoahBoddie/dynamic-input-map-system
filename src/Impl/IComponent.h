@@ -12,8 +12,10 @@ namespace DIMS
 	struct IComponent
 	{
 		virtual ~IComponent() = default;
+	
+	protected:
 
-		virtual void UnhandleArguments(Argument* list) const = 0;
-		virtual void UnhandleParameters(Parameter* list) const = 0;
+		virtual void UnhandleArguments(Argument* list) const {}
+		virtual void UnhandleParameters(Parameter* list) const {}
 	};
 }

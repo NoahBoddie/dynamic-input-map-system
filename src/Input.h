@@ -2,8 +2,8 @@
 
 namespace DIMS
 {
-	using ControlID = size_t;
-
+	using ControlID = uint32_t;
+	
 
 	struct Input
 	{
@@ -26,6 +26,12 @@ namespace DIMS
 		}
 		constexpr Input(RE::INPUT_DEVICE d, uint32_t c) noexcept : device{ d }, code{ c }
 		{
+		}
+
+		static Input CreateControl(RE::InputEvent* event)
+		{
+			
+			return Input{ RE::INPUT_DEVICE::kNone, RGL::Hash<HashFlags::Insensitive>(event->QUserEvent().c_str()) };
 		}
 
 
@@ -60,6 +66,7 @@ namespace DIMS
 
 		bool IsControl() const
 		{
+			return IsDevice(RE::INPUT_DEVICE::kNone);
 			return hash() == -1;
 		}
 

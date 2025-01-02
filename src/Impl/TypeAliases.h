@@ -5,4 +5,6 @@ namespace DIMS
 	struct CommandEntry;
 
 	using CommandEntryPtr = std::shared_ptr<CommandEntry>;
+
+	using tmp_Condition = bool(RE::PlayerCharacter*);
 }

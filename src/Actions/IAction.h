@@ -5,6 +5,7 @@
 
 #include "EventData.h"
 
+#include "Impl/IComponent.h"
 
 namespace DIMS
 {
@@ -13,7 +14,7 @@ namespace DIMS
 	struct Parameter;
 
 
-	struct IAction
+	struct IAction : public IComponent
 	{
 		virtual ~IAction() = default;
 

@@ -35,9 +35,10 @@ namespace DIMS
 
 	enum struct MatrixType
 	{
-		//Outdated.
+		//PrefixState,
 		Mode,			//The latest mode in the controller.
 		State,			//
+		//SuffixState,
 		//The relationship between ^ these is gonna have to be manual in terms of states blocking modes and such.
 
 		Dynamic,			//A matrix that is selected from the controls menu. Should be serialized outside of control map.
@@ -162,5 +163,32 @@ namespace DIMS
 	};
 
 	
+	//This type has the chance to hold personalized flags
+	ENUM(RefreshCode, uint32_t)
+	{
+		Update,			//Code sent when a sufficient amount of time has passed since the state last updated.
 
+		Custom = 1 << 31,	//This code allows for custom refresh points.
+							// when using a custom event, one needs to specify it with a character of some kind. After that
+							// the string afterwards is turned into a hash, and this hash (with the custom bit move) is what
+							// triggers a custom event code. This code can be helpful for scripted updates, or external state changes.
+
+		
+
+		Absolute = ~RefreshCode::Custom, //Runs even if the expected refresh code doesn't matches. Using this should also reset update's timestamp.
+	};
+	//TODO: A map of default checks for refresh code should exist. Something with very literal checks mashed together.
+	//So if there was a state that updates on crouch and weapon draw, it will have the default condition of happening when you draw your weapon and crouch.
+	// of course, it would need space for parameters, so it would start when you crouch and end when you stop crouching. But all that comes later.
+
+
+	enum struct StateLevel : uint8_t
+	{
+		Accord,		//Merges all commands except for the ones that have the same inputs.
+		Merge,		//Merges all commands regardless of occupying the same inputes
+		Clobber,	//Similar to smash, but as long as there are no input conflicts, it will work 
+					// note doesn't account for control v input interactions, but it will act like accord in those instances.
+		Smash,		//Merges only 
+		Collapse,	//The winner recuses themselves entirely.
+	};
 }

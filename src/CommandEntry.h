@@ -9,6 +9,8 @@ namespace DIMS
 
 	using InputCount = int8_t;
 
+	constexpr InputCount k_signedInput = 1 << (sizeof(InputCount) * 8 - 1);
+
 	struct CommandEntry
 	{
 		//Prohibit this from EVER being copy constructed
@@ -159,7 +161,7 @@ namespace DIMS
 
 		void TryResetStages() const
 		{
-			if (trigger->trigger_size() == inputs) {
+			if (trigger->trigger_size() == GetInputRef()) {
 				stagesVisit = EventStage::None;
 			}
 		}
@@ -199,32 +201,133 @@ namespace DIMS
 		}
 
 
-		InputCount GetInputRef() const { return inputs; }
+		InputCount GetInputRef() const { return inputs & ~k_signedInput; }
 
 		InputCount GetRealInputRef() const { return trigger->trigger_size() - GetInputRef(); }
 
 
-		InputCount GetSuccess() const { return success; }
-		InputCount GetFailure() const { return failure; }
+		InputCount GetSuccess() const { return success & ~k_signedInput; }
+		InputCount GetFailure() const { return failure & ~k_signedInput; }
 
+		bool IsActive() const
+		{
+			return GetSuccess() || GetFailure();
+		}
 
 		//These are reversed due to 0 being valued as "all inputs active"
-		InputCount IncInputRef() { inputs--; assert(inputs >= 0); return inputs; }
+		InputCount IncInputRef() 
+		{ 
+			auto val = inputs;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			inputs = --val;
+			assert(inputs >= 0);
+			inputs |= out;
+			return inputs; 
+		}
 
-		InputCount DecInputRef() { inputs++;  assert(trigger->trigger_size() >= inputs); TryResetStages(); return inputs; }
+		InputCount DecInputRef() 
+		{ 
+			auto val = inputs;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			inputs = ++val;
+			assert(trigger->trigger_size() >= inputs);
+			inputs |= out;
+			TryResetStages();
+			return inputs; 
+		}
 
 
 		
-		InputCount IncSuccess() { success++; assert(trigger->trigger_size() >= success); return success; }
+		InputCount IncSuccess() 
+		{ 
+			auto val = success;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			success = ++val;
+			assert(trigger->trigger_size() >= success);
+			success |= out;
+			return val;
 
-		InputCount DecSuccess() { success--;  assert(success >= 0); return success; }
+			//success++; 
+			//assert(trigger->trigger_size() >= success); 
+			//return success; 
+		}
 
-		InputCount IncFailure() { failure++; assert(trigger->trigger_size() >= failure); return failure; }
+		InputCount DecSuccess() 
+		{ 
+			auto val = success;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			success = --val;
+			assert(success >= 0);
+			success |= out;
+			if (!val) ClearComplete();
+			return val;
 
-		InputCount DecFailure() { failure--;  assert(failure >= 0); return failure; }
+			//success--;  
+			//assert(success >= 0); 
+			//return success; 
+		}
+
+		InputCount IncFailure() 
+		{ 
+			auto val = failure;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			failure = ++val;
+			assert(trigger->trigger_size() >= failure);
+			failure |= out;
+			return val;
+
+			//failure++; 
+			//assert(trigger->trigger_size() >= failure); 
+			//return failure; 
+		}
+
+		InputCount DecFailure() 
+		{
+			auto val = failure;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			failure = --val;
+			assert(failure >= 0);
+			failure |= out;
+			if (!val) ClearCancel();
+			return val;
+
+			//failure--;  
+			//assert(failure >= 0); 
+			//return failure; 
+		}
 
 
+		bool IsEnabled() const { return !IsDisabled(); }
+		bool IsDisabled() const { return inputs & k_signedInput; }
+		bool IsComplete() const { return success & k_signedInput; }
+		bool IsCancelled() const { return failure & k_signedInput; }
 
+		void SetEnabled(bool value) 
+		{ 
+			if (value)
+				inputs |= k_signedInput;
+			else
+				inputs &= ~k_signedInput;
+		}
+
+		//Other than disable, do not use these yet.
+		
+		void Enable() { SetEnabled(true); }
+		void Disable() { SetEnabled(false); }
+		void SetComplete() { success |= k_signedInput; }
+		void SetCancel() { failure |= k_signedInput; }
+
+	protected:
+		void ClearComplete() { success &= ~k_signedInput; }
+		void ClearCancel() { failure &= ~k_signedInput; }
+		
+	public:
 
 		//I need to move a lot of these back into the trigger nodes
 		ConflictLevel GetConflictLevel() const

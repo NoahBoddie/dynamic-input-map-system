@@ -396,6 +396,8 @@ SKSEPluginLoad(const LoadInterface* skse) {
     SKSEInputHook::Install();
     QueueReleaseHook::Install();
 
+    LoadTestManager();
+
     log::info("{} has finished loading.", plugin->GetName());
     return true;
 }
