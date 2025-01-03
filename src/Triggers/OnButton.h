@@ -10,7 +10,7 @@ namespace DIMS
 	struct Argument;
 	struct Parameter;
 
-	struct OnButton : public InputTriggerBase
+	struct OnButton : public ITrigger
 	{
 		//All trigger classes will have these big old parameter constants. While the names of these parameters are found
 		static constexpr auto BUTTON_ID = 0;
@@ -32,8 +32,6 @@ namespace DIMS
 			return data ? data->SecondsHeld() < Settings::comboPressTime : true;
 		}
 
-
-		bool CanHandleEvent(RE::InputEvent* event, Argument* list) const override;
 
 
 	};

@@ -19,13 +19,13 @@ namespace DIMS
 		
 		mutable uint32_t localTimestamp = -1;
 		
-		constexpr static uint8_t invalidIndex = 15;
 
+		//TODO: With the advent of control inputs existing, we no longer need index.
 		
 		//This method does not work. Multiple viable (and intended) inputs will not result in a very sound combination. The only solution
 		// is increasing the size of literally everything.
-		mutable uint8_t _index : 4 = invalidIndex;
-		mutable EventStage stagesVisit : 4 = EventStage::None;
+
+		mutable EventStage stagesVisit  = EventStage::None;
 
 		//I'm clumping these together because they'll be used most together.
 
@@ -64,16 +64,6 @@ namespace DIMS
 			return inputs == 0;
 		}
 
-		void PushIndex() const
-		{
-			//With this I don't think I actually need waiters anymore
-			if (_index != -1)
-			{
-				if (++_index >= trigger->trigger_size())
-					_index = 0;
-
-			}
-		}
 
 #pragma region GlobalIdea
 
@@ -185,21 +175,6 @@ namespace DIMS
 		
 #pragma endregion
 
-		uint8_t index() const
-		{
-			//if (_index != -1) {
-			//	if (auto time = RE::GetDurationOfApplicationRunTime(); oldTimestamp != time) {
-			//		oldTimestamp = time;
-			//		_index = 0;
-			//	}
-			//}
-
-			auto value = _index;
-
-			return value == invalidIndex ? -1 : value;
-
-		}
-
 
 		InputCount GetInputRef() const { return inputs & ~k_signedInput; }
 
@@ -216,7 +191,7 @@ namespace DIMS
 
 		//These are reversed due to 0 being valued as "all inputs active"
 		InputCount IncInputRef() 
-		{ 
+		{	
 			auto val = inputs;
 			auto out = val & k_signedInput;
 			val &= ~k_signedInput;
@@ -227,12 +202,12 @@ namespace DIMS
 		}
 
 		InputCount DecInputRef() 
-		{ 
+		{
 			auto val = inputs;
 			auto out = val & k_signedInput;
 			val &= ~k_signedInput;
 			inputs = ++val;
-			assert(trigger->trigger_size() >= inputs);
+			
 			inputs |= out;
 			TryResetStages();
 			return inputs; 
@@ -437,10 +412,10 @@ namespace DIMS
 
 
 
-		bool CanHandleEvent(RE::InputEvent* event, bool push = true) const
-		{
-			return trigger->CanHandleEvent(event, index());
-		}
+		//bool CanHandleEvent(RE::InputEvent* event, bool push = true) const
+		//{
+		//	return trigger->CanHandleEvent(event, index());
+		//}
 
 
 		//Execute returns if it actually executed anything or if the event was stifled
@@ -542,7 +517,7 @@ namespace DIMS
 		//bool IsDelayable() const{return trigger->trigger_size() > 1;}
 
 		//TODO: This needs to confirm these both come from the same space.
-		CommandEntry(InputCommand* cmd, TriggerNode* node, bool a_control) : trigger{ node }, command{ cmd }, _index{ a_control ? (uint8_t)0 : invalidIndex }
+		CommandEntry(InputCommand* cmd, TriggerNode* node) : trigger{ node }, command{ cmd }
 		{
 			//This doesn't need an parameter for control checking, I can ask the trigger node this. 
 			// Make this a function.
@@ -552,20 +527,4 @@ namespace DIMS
 	};
 
 	using CommandEntryPtr = std::shared_ptr<CommandEntry>;
-
-
-	struct EntryIndexCleaner
-	{
-		CommandEntryPtr& entry;
-		
-		~EntryIndexCleaner()
-		{
-			entry->PushIndex();
-		}
-
-		EntryIndexCleaner(CommandEntryPtr& e) : entry{ e }
-		{
-
-		}
-	};
 }

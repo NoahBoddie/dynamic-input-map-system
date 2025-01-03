@@ -252,7 +252,7 @@ namespace DIMS
 			{
 				for (auto& trigger : command.triggers)
 				{
-					CommandEntryPtr entry = std::make_shared<CommandEntry>(&command, &trigger, trigger.IsControlTrigger());
+					CommandEntryPtr entry = std::make_shared<CommandEntry>(&command, &trigger);
 
 					for (auto input : trigger.GetInputs())
 					{
@@ -317,7 +317,7 @@ namespace DIMS
 			{
 				for (auto& trigger : command.triggers)
 				{
-					conflictList.insert_range(trigger.GetControlInputs());
+					conflictList.insert_range(trigger.GetInputs());
 				}
 			}
 
@@ -331,8 +331,10 @@ namespace DIMS
 		bool IsInConflict(const InputState* other) const
 		{
 			for (auto input : conflictList) {
-				other->conflictList.contains(input);
+				if (other->conflictList.contains(input) == true)
+					return true;
 			}
+			return false;
 		}
 
 		bool IsInConflict(const InputState& other)
@@ -470,9 +472,22 @@ namespace DIMS
 			return settings->IsInConflict(other->settings);
 		}
 
-		void DisableInput()
+		void SetInputEnabled(Input input, bool value)
 		{
-			//
+
+			auto it = storage.find(input.hash());
+
+			auto end = storage.end();
+
+			if (it == end) {
+				return;
+			}
+
+			for (auto& entry : it->second)
+			{
+				entry->SetEnabled(value);
+			}
+
 		}
 
 		void Activate()
@@ -603,7 +618,7 @@ namespace DIMS
 			
 		}
 
-		void LoadVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input)
+		void LoadVisitorList(detail::VisitorList& list, Input input, Input control)
 		{
 			if (IsEnabled() == false) {
 				return;
@@ -613,7 +628,7 @@ namespace DIMS
 			//{
 			//}
 
-			auto ctrl_it = storage.find(Input::CONTROL);
+			auto ctrl_it = storage.find(control.hash());
 			auto input_it = storage.find(input.hash());
 
 			auto end = storage.end();
@@ -630,7 +645,7 @@ namespace DIMS
 
 			for (auto& parent : parents)
 			{
-				parent->LoadVisitorList(list, event, input);
+				parent->LoadVisitorList(list, input, control);
 			}
 
 			
@@ -688,6 +703,8 @@ namespace DIMS
 
 
 
+
+
 			//I think while updating, if the headers don't say they want to update, we just take a span of their data, and add it into the span.
 			for (int i = 0; i < headers.size(); i++)
 			{
@@ -707,6 +724,9 @@ namespace DIMS
 			activeStates = updateList;
 
 			//Sorting needs to happen here.
+
+
+			//Disabling stagnant state objects will be possible right here, but for now I'm going to leave it.
 
 			//This can actually go in GetViableStates, especially since it needs nothing but a check for what can be included.
 			// For now, i'm fine doing it here.
@@ -767,22 +787,44 @@ namespace DIMS
 			}
 		}
 
-		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input)
+		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input, Input control)
 		{
 			CheckUpdate();
 			
 			bool result = true;
 
 			//Now that I think about it, the way this is set up, any state that can run
+
+			bool first = true;
+
+			bool collecting = true;
+
 			for (auto state : activeStates)
 			{
-				if (!state)
-					continue;
+				//If we aren't collecting, we're just shutting down, primarily so multipress commands don't end up causing undue waiters that may jam functionality
 
-				state->LoadVisitorList(list, event, input);
-				
+				if (collecting)
+					state->LoadVisitorList(list, input, control);
+				else {
+					//state->SetInputEnabled(input, false);
+					//state->SetInputEnabled(control, false);
+				}
+
+
 				if (state->CanInputPass(event) == false)
 					result = false;
+
+
+				if (first) {
+					if (state->level() == StateLevel::Accord) {
+						collecting = false;
+					}
+					
+					first = false;
+
+
+
+				}
 			}
 
 			return result;
@@ -1816,7 +1858,7 @@ namespace DIMS
 
 
 
-		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input, MatrixType type)
+		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input, Input control, MatrixType type)
 		{
 			//Returns if it should be allowed to continue on down the line.
 
@@ -1832,7 +1874,7 @@ namespace DIMS
 				return true;
 			
 			case MatrixType::State:
-				return stateMap.PrepVisitorList(list, event, input);
+				return stateMap.PrepVisitorList(list, event, input, control);
 
 			case MatrixType::Mode: {
 				ModeMap* mode = GetCurrentMode();
@@ -1854,7 +1896,7 @@ namespace DIMS
 				return true;
 			
 
-			auto ctrl_it = map->find(Input::CONTROL);
+			auto ctrl_it = map->find(control.hash());
 			auto input_it = map->find(input.hash());
 
 			auto end = map->end();
@@ -2044,11 +2086,13 @@ namespace DIMS
 			auto& trigger4 = command4->triggers.emplace_back();
 			trigger4.priority = 10;
 			trigger4.type = TriggerType::OnControl;
+			//trigger4.type = TriggerType::OnButton;
 			trigger4.conflict = ConflictLevel::Defending;
 			trigger4.stageFilter = EventStage::StartFinish;
 			trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
 			trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
-
+			//trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnButton::BUTTON_ID] = Input{ RE::INPUT_DEVICE::kMouse, 0 };
+			//trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnButton::BUTTON_ID] = Input{ RE::INPUT_DEVICE::kMouse, 1 };
 
 
 			std::vector<InputCommand*> something{ command1, command2, command3, command4, command5, command6 };
@@ -2082,7 +2126,7 @@ namespace DIMS
 			{
 				for (auto& trigger : command->triggers)
 				{
-					auto entry = std::make_shared<CommandEntry>(command, &trigger, trigger.IsControlTrigger());
+					auto entry = std::make_shared<CommandEntry>(command, &trigger);
 
 					for (auto input : trigger.GetInputs())
 					{
@@ -2214,7 +2258,8 @@ namespace DIMS
 
 			bool allow_execute = true;
 
-			Input input{ event };
+			Input input = Input::CreateInput(event);
+			Input control = Input::CreateControl(event);
 
 			if (stage == EventStage::Start) {
 				CheckRelease(event, input);
@@ -2243,7 +2288,7 @@ namespace DIMS
 
 				for (MatrixType i = (MatrixType)0; i < MatrixType::Total; i++) 
 				{
-					if (PrepVisitorList(list, event.event, input, i) == false) {
+					if (PrepVisitorList(list, event.event, input, control, i) == false) {
 						//If one of these blocks further inputs, it needs an active command as a reminder.
 						active_input->SetBasicFailure();
 						break;
@@ -2253,13 +2298,11 @@ namespace DIMS
 				
 				VisitLists([&](CommandEntryPtr entry, bool& should_continue)
 				{
-					EntryIndexCleaner cleaner{ entry };//This cleaner increments when it dies.
-
 					if (entry->GetRealInputRef() > 1) {
 						entry->IsActive();
 					}
 
-					if (!entry->IsActive() && entry->CanHandleEvent(event) == true){
+					if (entry->IsActive()  == false){
 						active_input->MakeCommand(entry, stage);
 					}
 

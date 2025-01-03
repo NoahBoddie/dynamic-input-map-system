@@ -32,11 +32,6 @@ namespace DIMS
 			return args.size();
 		}
 
-		bool IsControlTrigger() const
-		{
-			auto trig_info = triggerInfo[type];
-			return trig_info->IsControlTrigger();
-		}
 
 
 		const Argument* GetInputArgument(size_t input_index, size_t arg_index)
@@ -64,50 +59,17 @@ namespace DIMS
 		}
 
 
-		std::vector<ControlID> GetControls()
-		{
-			//No numbers because it initializes with numbers
-			std::vector<ControlID> result{ };
-			result.resize(args.size());
 
-			std::transform(args.begin(), args.end(), result.begin(), [this](std::unique_ptr<Argument[]>& it)
-				{
-					return triggerInfo[type]->GetControl(it.get());
-				});
-
-			return result;
-		}
-
-		//Returns both controls and inputs, with controls being designated with a null device
-		std::vector<Input> GetControlInputs()
-		{
-			std::vector<Input> result{ };
-	
-			result.resize(args.size());
-
-			std::transform(args.begin(), args.end(), result.begin(), [this](std::unique_ptr<Argument[]>& it)
-			{
-				if (IsControlTrigger() == true)
-					return Input{ RE::INPUT_DEVICE::kNone, triggerInfo[type]->GetControl(it.get()) };
-				else
-					return triggerInfo[type]->GetInput(it.get());
-			});
-
-			return result;
-		}
+		
 
 
 
-
-		bool CanHandleEvent(RE::InputEvent* event, int8_t index) const
+		[[deprecated("No longer needed, command maps handle this, put on retirement")]]
+		bool CanHandleEvent_Deprecated(RE::InputEvent* event) const
 		{
 			auto trig_info = triggerInfo[type];
 
-			//This is for contros
-			auto size = index == -1 ? args.size() : index + 1;
-			
-			//This shit is a poorly attempt to get it to loop only if it's not a control
-			for (auto i = index == -1 ? 0 : index; i < size; i++)
+			for (auto i = 0; i < args.size(); i++)
 			{
 				if (trig_info->CanHandleEvent(event, args[i].get()) == true)
 					return true;

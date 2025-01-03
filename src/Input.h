@@ -3,15 +3,16 @@
 namespace DIMS
 {
 	using ControlID = uint32_t;
+	//using ControlID = size_t;
 	
 
 	struct Input
 	{
 	private:
-		static constexpr uint32_t k_controlCode = -1;
+		static constexpr uint32_t k_nullCode = -1;
 
 	public:
-
+		using Code = uint32_t;
 
 		using Hash = int64_t;
 
@@ -28,14 +29,28 @@ namespace DIMS
 		{
 		}
 
+		//Make create input
+
+		static Input CreateInput(RE::InputEvent* event)
+		{
+			Input result{ event->GetDevice(), k_nullCode };
+
+			if (auto id = event->AsIDEvent())
+			{
+				result.code = id->GetIDCode();
+			}
+
+			return result;
+		}
+
 		static Input CreateControl(RE::InputEvent* event)
 		{
-			
+			//If more discriminators are needed for this, I can include the size of the hash to further reduce the chances.
 			return Input{ RE::INPUT_DEVICE::kNone, RGL::Hash<HashFlags::Insensitive>(event->QUserEvent().c_str()) };
 		}
 
 
-		Input(RE::InputEvent* event) noexcept : Input(event->GetDevice(), -1)
+		Input(RE::InputEvent* event) noexcept : Input(event->GetDevice(), k_nullCode)
 		{
 			if (auto id = event->AsIDEvent())
 			{
@@ -49,7 +64,7 @@ namespace DIMS
 
 
 		RE::INPUT_DEVICE device = RE::INPUT_DEVICE::kNone;
-		uint32_t code = k_controlCode;
+		uint32_t code = k_nullCode;
 
 
 		constexpr Hash hash() const

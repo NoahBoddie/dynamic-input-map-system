@@ -4,15 +4,9 @@
 
 namespace DIMS
 {
-	ControlID OnControl::GetControl(const Argument* list) const
+	Input  OnControl::GetInput(const Argument* args) const
 	{
-		return list[CONTROL_ID].As<ControlID>();
-	}
-
-	bool OnControl::CanHandleEvent(RE::InputEvent* event, Argument* list) const
-	{
-		auto hash = Hash<HashFlags::Insensitive>(event->QUserEvent().c_str());
-
-		return GetControl(list) == hash;
+		auto id = args[CONTROL_ID].As<ControlID>();
+		return Input{ RE::INPUT_DEVICE::kNone, id };
 	}
 }
