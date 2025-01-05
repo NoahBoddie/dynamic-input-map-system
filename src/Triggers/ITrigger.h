@@ -2,7 +2,7 @@
 
 #include "Input.h"
 
-
+#include "Impl/IComponent.h"
 
 namespace DIMS
 {

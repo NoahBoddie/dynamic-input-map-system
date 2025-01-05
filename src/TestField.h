@@ -57,6 +57,7 @@ namespace DIMS
 
 	namespace detail
 	{
+		//visitor list should be a set.
 		using VisitorList = std::vector<std::reference_wrapper<std::vector<std::shared_ptr<CommandEntry>>>>;
 		using VisitorFunc = std::variant<std::function<void(CommandEntry*, bool&)>, std::function<void(CommandEntryPtr, bool&)>>;
 	}
@@ -330,11 +331,56 @@ namespace DIMS
 
 		bool IsInConflict(const InputState* other) const
 		{
+			auto control_map = RE::ControlMap::GetSingleton();
+
+			
 			for (auto input : conflictList) {
 				if (other->conflictList.contains(input) == true)
 					return true;
+
+				if (input.IsUserEvent() == false) {
+					if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+						//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+						Input ctrl = Input::CreateUserEvent(name);
+
+						if (other->conflictList.contains(ctrl) == true)
+							return true;
+					}
+				}
 			}
+
+			if (other->HasRawInputs() == true)
+			{
+				for (auto input : other->conflictList) {
+					if (input.IsUserEvent() == true)
+						continue;
+					
+					
+					if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+						//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+						Input ctrl = Input::CreateUserEvent(name);
+
+						if (conflictList.contains(ctrl) == true)
+							return true;
+					}
+
+
+				}
+			}
+
 			return false;
+		}
+
+		//A bool will get flipped on if we even need to look for user events in the conflict list.
+		bool HasRawInputs() const
+		{
+			//When a raw input is added to a state, a boolean flag will be ticked that will start the search from the other side.
+			return true;
+		}
+
+		bool HasInput(Input input)
+		{
+			return conflictList.contains(input);
 		}
 
 		bool IsInConflict(const InputState& other)
@@ -488,7 +534,31 @@ namespace DIMS
 				entry->SetEnabled(value);
 			}
 
+
+			for (auto parent : parents)
+			{
+				parent->SetInputEnabled(input, value);
+			}
 		}
+
+		//This is called on all activeStates at the end of a successful update.
+		void SetAllInputsEnabled(bool value = true)
+		{
+			for (auto& [key, lists] : storage)
+			{
+				for (auto& entry : lists)
+				{
+					entry->SetEnabled(value);
+				}
+
+			}
+
+			for (auto parent : parents)
+			{
+				parent->SetAllInputsEnabled(value);
+			}
+		}
+
 
 		void Activate()
 		{
@@ -573,7 +643,7 @@ namespace DIMS
 			constexpr RefreshCode k_fakeUpdateCode = RefreshCode::Update;
 			constexpr RefreshCode k_fakeExpectedCode = RefreshCode::Update;
 
-			if (k_fakeUpdateCode != k_fakeExpectedCode ||  k_fakeUpdateCode != RefreshCode::Absolute) {
+			if (k_fakeUpdateCode != k_fakeExpectedCode &&  k_fakeUpdateCode != RefreshCode::Absolute) {
 				//If it's not within the expected update but it's currently active, it will just put it in there.
 				// I may actually just make a setting for this specifically to make it faster. For now, this will work.
 				auto end = limit.end();
@@ -618,11 +688,11 @@ namespace DIMS
 			
 		}
 
-		void LoadVisitorList(detail::VisitorList& list, Input input, Input control)
+		void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& in_win, InputState*& ctrl_win, bool& disabled)
 		{
-			if (IsEnabled() == false) {
-				return;
-			}
+			//if (IsEnabled() == false) {
+			//	return;
+			//}
 
 			//else if (winner->level() == ??? && winner->IsInConflict(this) == true)
 			//{
@@ -635,17 +705,28 @@ namespace DIMS
 
 			//change these to AttemptToPull functions.
 			if (ctrl_it != end) {
+
+				
+
 				list.push_back(std::ref(ctrl_it->second));
+				SetInputEnabled(control, true);
 			}
 
 			if (input_it != end) {
-				list.push_back(std::ref(input_it->second));
-			}
+				
+				//Do in_win check here
 
+				list.push_back(std::ref(input_it->second));
+				SetInputEnabled(input, true);
+			}
+			
+			//Basically if it's already taken, take it back
+			InputState* _in_win = in_win;
+			InputState* _ctrl_win = ctrl_win;
 
 			for (auto& parent : parents)
 			{
-				parent->LoadVisitorList(list, input, control);
+				parent->LoadVisitorList(list, input, control, _in_win, _ctrl_win, disabled);
 			}
 
 			
@@ -692,7 +773,7 @@ namespace DIMS
 
 		void tmpUpdate(RefreshCode code)
 		{
-			std::span<EntryState*> limits = activeStates;
+			std::span<EntryState*> limits{ activeStates };
 
 			//This should only be made once we're sure that there's actually even gonna be an update.
 			// To this, each time the real update is called, it will be associated with an update event. If one of those update event's match the code given,
@@ -722,6 +803,12 @@ namespace DIMS
 			updateList.erase(it, updateList.end());
 
 			activeStates = updateList;
+
+			for (auto state : activeStates){
+				state->SetAllInputsEnabled(false);
+			}
+
+			return;
 
 			//Sorting needs to happen here.
 
@@ -799,32 +886,20 @@ namespace DIMS
 
 			bool collecting = true;
 
+			InputState* in_win = nullptr;
+			InputState* ctrl_win = nullptr;
+
+			bool disabled = false;
+
 			for (auto state : activeStates)
 			{
 				//If we aren't collecting, we're just shutting down, primarily so multipress commands don't end up causing undue waiters that may jam functionality
 
-				if (collecting)
-					state->LoadVisitorList(list, input, control);
-				else {
-					//state->SetInputEnabled(input, false);
-					//state->SetInputEnabled(control, false);
-				}
+				state->LoadVisitorList(list, input, control, in_win, ctrl_win, disabled);
 
 
 				if (state->CanInputPass(event) == false)
 					result = false;
-
-
-				if (first) {
-					if (state->level() == StateLevel::Accord) {
-						collecting = false;
-					}
-					
-					first = false;
-
-
-
-				}
 			}
 
 			return result;
@@ -1438,7 +1513,7 @@ namespace DIMS
 			//cmd->GetFirstStage() < stage;
 
 
-			//This doesn't quite fit.
+			
 			if (cmd->ShouldBeBlocked() && IsStagesBlocked(cmd->GetTriggerFilter()) == true) {
 				return;
 			}
@@ -1723,9 +1798,9 @@ namespace DIMS
 
 		ActiveInputHandle(Input h, ActiveInputMap& m, IValuePair i) : hash{ h }, map{ m }, iValues{ i }
 		{
-			assert(!h.IsControl());
+			assert(!h.IsUserEvent());
 
-			if (h.IsControl() == true)
+			if (h.IsUserEvent() == true)
 				throw std::exception("Cannot obtain active input for control");
 
 			auto it = map.find(h);
@@ -2150,7 +2225,7 @@ namespace DIMS
 
 		ActiveInput& ObtainActiveInput(Input input)
 		{
-			if (input.IsControl() == true)
+			if (input.IsUserEvent() == true)
 				throw std::exception("Cannot obtain active input for control");
 
 			auto& ptr = activeMap[input];
@@ -2164,7 +2239,7 @@ namespace DIMS
 		//Takes input because it is genuinely easier to do it like this.
 		bool ClearActiveInput(Input input)
 		{
-			if (input.IsControl() == true)
+			if (input.IsUserEvent() == true)
 				throw std::exception("Cannot obtain active input for control");
 			
 			//Later, this will very likely stick around and clear itself instead. For now, this works.
@@ -2259,7 +2334,7 @@ namespace DIMS
 			bool allow_execute = true;
 
 			Input input = Input::CreateInput(event);
-			Input control = Input::CreateControl(event);
+			Input control = Input::CreateUserEvent(event);
 
 			if (stage == EventStage::Start) {
 				CheckRelease(event, input);
@@ -2302,7 +2377,7 @@ namespace DIMS
 						entry->IsActive();
 					}
 
-					if (entry->IsActive()  == false){
+					if (!entry->IsActive() && entry->IsEnabled() == true){
 						active_input->MakeCommand(entry, stage);
 					}
 

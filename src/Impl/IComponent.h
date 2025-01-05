@@ -4,6 +4,9 @@
 
 #pragma once
 
+//I want to rename this, basically the idea is theyre a resource manager
+
+
 namespace DIMS
 {
 	struct Parameter;

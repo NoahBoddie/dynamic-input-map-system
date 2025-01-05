@@ -42,12 +42,20 @@ namespace DIMS
 
 			return result;
 		}
-
-		static Input CreateControl(RE::InputEvent* event)
+		static Input CreateUserEvent(const std::string_view& str)
 		{
 			//If more discriminators are needed for this, I can include the size of the hash to further reduce the chances.
-			return Input{ RE::INPUT_DEVICE::kNone, RGL::Hash<HashFlags::Insensitive>(event->QUserEvent().c_str()) };
+			return Input{ RE::INPUT_DEVICE::kNone, RGL::Hash<HashFlags::Insensitive>(str) };
 		}
+
+		static Input CreateUserEvent(RE::InputEvent* event)
+		{
+			return CreateUserEvent(event->QUserEvent().c_str());
+		}
+
+
+		
+
 
 
 		Input(RE::InputEvent* event) noexcept : Input(event->GetDevice(), k_nullCode)
@@ -79,12 +87,11 @@ namespace DIMS
 		}
 
 
-		bool IsControl() const
+		bool IsUserEvent() const
 		{
 			return IsDevice(RE::INPUT_DEVICE::kNone);
 			return hash() == -1;
 		}
-
 
 		bool IsDevice(RE::INPUT_DEVICE a_device) const
 		{

@@ -286,9 +286,9 @@ namespace DIMS
 		void SetEnabled(bool value) 
 		{ 
 			if (value)
-				inputs |= k_signedInput;
-			else
 				inputs &= ~k_signedInput;
+			else
+				inputs |= k_signedInput;
 		}
 
 		//Other than disable, do not use these yet.
