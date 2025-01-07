@@ -17,7 +17,7 @@
 #include "Utility.h"
 
 #include "RE/Functions.h"
-
+#include "InputMatrix.h"
 namespace DIMS
 {
 	//Lookup types
@@ -34,10 +34,6 @@ namespace DIMS
 	//May make this an actual class with the ability to restore what's stored.
 
 
-
-
-
-	using CommandMap = std::unordered_map<Input::Hash, std::vector<std::shared_ptr<CommandEntry>>>;
 
 
 
@@ -115,8 +111,9 @@ namespace DIMS
 
 					if (lhs.first == lhs.second)
 						return true;
+					//return (*lhs.first)->priority() < (*rhs.first)->priority();
+					return (*lhs.first)->CompareOrder(**rhs.first);
 
-					return (*lhs.first)->priority() < (*rhs.first)->priority();
 				})->first;
 
 			//I'll likely want to keep this alive
@@ -212,65 +209,6 @@ namespace DIMS
 		Total
 	};
 
-
-	struct IMatrix
-	{
-		virtual ~IMatrix() = default;
-		//Consult below.
-		
-		//When invoked, only commands with the same type of matrix type will be allowed used.
-		virtual bool CanInputPass(RE::InputEvent* event) const
-		{
-			return true;
-		}
-	};
-
-
-	struct InputMatrix : public IMatrix
-	{
-		//The input matrix will likely be the thing that basically houses all the nodes associated with a thing. So for example a mode's nodes,
-		// a default set up's nodes, a null set ups nodes (IE the very most basic node that simply passes on.
-		
-		//This is also the thing that possible handles state nodes as well, to which I'm not entirely sure those will combine.
-		//I'm thinking perhaps with states, there's an input matrix built into the Matrix controller that develops it as time goes on.
-
-
-		//Note, the default config (A completely empty configuration) will always have to exist.
-
-
-		//This is a dummy value, but in the setting configs, ownership is basically saying "does it belong to a mode/state/matrix named this"
-		// followed by which one of these someone is using. Having no ownership will assign to whatever the loaded default is.
-		//std::string ownership;
-
-		std::vector<InputCommand> commands;//Once this is finalized, this cannot have it's values changed. so it should be private.
-
-		
-		CommandMap CreateCommandMap()
-		{
-			CommandMap map;
-
-			for (auto& command : commands)
-			{
-				for (auto& trigger : command.triggers)
-				{
-					CommandEntryPtr entry = std::make_shared<CommandEntry>(&command, &trigger);
-
-					for (auto input : trigger.GetInputs())
-					{
-						auto& list = map[input];
-
-						list.insert(std::upper_bound(list.begin(), list.end(), entry, [](const std::shared_ptr<CommandEntry>& lhs, const std::shared_ptr<CommandEntry>& rhs)
-							{return lhs->priority() > rhs->priority(); }),
-							entry);
-					}
-				}
-			}
-
-			return map;
-		}
-		
-	};
-	
 	struct LayerMatrix : public InputMatrix
 	{
 		//Blocked user events are stored as device less id codes.
@@ -288,10 +226,14 @@ namespace DIMS
 		}
 	};
 
+	struct ModeMatrix : public LayerMatrix
+	{
+		MatrixType GetMatrixType() const override { return MatrixType::Mode; }
+	};
 
 	struct StateController
 	{
-
+		
 	};
 
 
@@ -302,13 +244,96 @@ namespace DIMS
 		//This is a matrix setting that creates the setting
 		std::vector<InputState*> parents;
 
-		StateLevel level = StateLevel::Accord;
+		StateLevel level = StateLevel::Smother;
 		int16_t priority = 1;
 		tmp_Condition* condition = nullptr;
 		
 		std::string_view debugName;
 
 		std::set<Input> conflictList;
+
+		MatrixType GetMatrixType() const override { return MatrixType::State; }
+
+		std::strong_ordering CompareOrder(const InputMatrix* o) const override
+		{
+			auto other = dynamic_cast<const InputState*>(o);
+			
+			if (DerivesFrom(other) == true) {
+				return std::strong_ordering::greater;
+			}
+			
+			if (other->DerivesFrom(this) == true) {
+				return std::strong_ordering::less;
+			}
+
+			return std::strong_ordering::equal;
+		}
+
+		//If input is relevant to the below
+		bool IsInputRelevant() const
+		{
+			switch (level)
+			{
+			case StateLevel::Smother:
+			case StateLevel::Clobber:
+				return true;
+
+			default:
+				return false;
+			}
+		}
+
+		bool ShouldSmash() const
+		{
+			switch (level)
+			{
+			case StateLevel::Smash:
+			case StateLevel::Clobber:
+				return true;
+			
+			default:
+				return false;
+			}
+		}
+
+		//Collapse is the act of crumpling despite not being asked to.
+		bool ShouldCollapse() const
+		{
+			switch (level)
+			{
+			case StateLevel::Smash:
+			case StateLevel::Clobber:
+			case StateLevel::Collapse:
+				return true;
+
+			default:
+				return false;
+			}
+		}
+
+		bool ShouldSmother() const
+		{
+
+			switch (level)
+			{
+			case StateLevel::Smash:
+			case StateLevel::Clobber:
+			case StateLevel::Smother:
+				return true;
+
+			default:
+				return false;
+			}
+		}
+
+
+		bool ShouldBeSmothered() const
+		{
+			return level != StateLevel::Merge;
+		}
+
+
+
 
 		void tmpBuildConflictList()
 		{
@@ -335,23 +360,20 @@ namespace DIMS
 
 			
 			for (auto input : conflictList) {
-				if (other->conflictList.contains(input) == true)
+				if (other->HasInput(input) == true)
 					return true;
-
-				if (input.IsUserEvent() == false) {
-					if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
-						//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
-						Input ctrl = Input::CreateUserEvent(name);
-
-						if (other->conflictList.contains(ctrl) == true)
-							return true;
-					}
-				}
 			}
 
 			if (other->HasRawInputs() == true)
 			{
 				for (auto input : other->conflictList) {
+					if (HasInputAsUserEvent(input) == true)
+						return true;
+
+
+					continue;
+
+					//saving this just in case
 					if (input.IsUserEvent() == true)
 						continue;
 					
@@ -371,6 +393,13 @@ namespace DIMS
 			return false;
 		}
 
+
+		bool IsInConflict(const InputState* other, Input input) const
+		{
+			return HasInput(input) && other->HasInput(input);
+		}
+
+
 		//A bool will get flipped on if we even need to look for user events in the conflict list.
 		bool HasRawInputs() const
 		{
@@ -378,9 +407,32 @@ namespace DIMS
 			return true;
 		}
 
-		bool HasInput(Input input)
+
+
+		bool HasInputAsUserEvent(Input input) const
 		{
-			return conflictList.contains(input);
+			if (input.IsUserEvent() == false) {
+				auto control_map = RE::ControlMap::GetSingleton();
+
+				if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+					//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+					Input ctrl = Input::CreateUserEvent(name);
+
+					if (conflictList.contains(ctrl) == true)
+						return true;
+				}
+			}
+
+			return false;
+		}
+
+
+		bool HasInput(Input input) const
+		{
+			if (conflictList.contains(input) == true)
+				return true;
+
+			return HasInputAsUserEvent(input);
 		}
 
 		bool IsInConflict(const InputState& other)
@@ -489,6 +541,13 @@ namespace DIMS
 
 	struct EntryState : public IMatrix//There's no state entry because this is basically always active in this state
 	{
+		enum EnableState
+		{
+			kUndefined,
+			kEnabled,
+			kDisabled,
+		};
+
 		InputState* settings = nullptr;
 
 		//This carries the command map, and other ActiveState parents.
@@ -498,7 +557,7 @@ namespace DIMS
 
 		CommandMap storage;
 
-		bool enabled = true;
+		EnableState _enabled = kUndefined;
 		uint32_t activeTimestamp = -1;
 
 		auto priority() const
@@ -585,37 +644,43 @@ namespace DIMS
 			return GetActivateTime() == RE::GetDurationOfApplicationRunTime();
 		}
 
-		//Only matters when the state is in the active area.
-		void SetEnabled(bool value)
-		{
-			if (enabled == value)
-				return;
+		protected: 
 
-			for (auto& [key, list] : storage)
-			{
-				for (auto& command : list)
-				{
-					command->SetEnabled(value);
-				}
-			}
+		void SetEnabledImpl(EnableState state)
+		{
+			_enabled = state;
 		}
 
+		public:
+		void SetEnabled(bool value)
+		{
+			return SetEnabledImpl(value ? kEnabled : kDisabled);
+		}
+
+		void ClearEnabled()
+		{
+			return SetEnabledImpl(kUndefined);
+		}
 
 		void Disable()
 		{
-			SetEnabled(false);
+			return SetEnabled(false);
 		}
 
 		void Enable()
 		{
-			SetEnabled(true);
+			return SetEnabled(true);
 		}
 
 		bool IsEnabled() const
 		{
-			return enabled;
+			return _enabled == kEnabled;
 		}
 
+		bool IsDisabled() const
+		{
+			return _enabled == kDisabled;
+		}
 
 		bool CanInputPass(RE::InputEvent* event) const override
 		{
@@ -632,7 +697,7 @@ namespace DIMS
 		}
 
 
-		std::vector<EntryState*> GetViableStates(std::span<EntryState*>& limit)
+		std::vector<EntryState*> GetViableStates(std::span<EntryState*>& limit, InputState*& winner, bool& change)
 		{
 			//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
 			// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
@@ -642,6 +707,8 @@ namespace DIMS
 		
 			constexpr RefreshCode k_fakeUpdateCode = RefreshCode::Update;
 			constexpr RefreshCode k_fakeExpectedCode = RefreshCode::Update;
+			
+			EntryState* self = nullptr;
 
 			if (k_fakeUpdateCode != k_fakeExpectedCode &&  k_fakeUpdateCode != RefreshCode::Absolute) {
 				//If it's not within the expected update but it's currently active, it will just put it in there.
@@ -649,22 +716,45 @@ namespace DIMS
 				auto end = limit.end();
 
 				if (std::find(limit.begin(), end, this) != end) {
-					return { this };
+					self = this;
 				}
 				else
 					return {};
 			}
+			//The rule is that the states in question must remain above
+			else {
+				change = true;
+
+				if (settings->tmpCheckCondition() == true) {
+					self = this;
+				}
+			}
+
+
+
+			
+
+			if (self) {
+
+				//Here a question about whether this should be viable based on the winner is cast forth.
+
+				if (!winner) {
+					winner = settings;
+					return { self };
+				}
+				else {
+					bool collapse = settings->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(settings));
+				
+					if (collapse)
+						return {};
+				}
+			}
+			
+
 
 			std::vector<EntryState*> result;
 
 
-
-
-			//The rule is that the states in question must remain above
-			if (settings->tmpCheckCondition() == true)
-				return { this };
-
-			
 			auto end = limit.end();
 
 			if (std::find(limit.begin(), end, this) != end) {
@@ -674,7 +764,7 @@ namespace DIMS
 
 			for (auto parent : parents)
 			{
-				auto add = parent->GetViableStates(limit);
+				auto add = parent->GetViableStates(limit, winner, change);
 
 				if (add.size() != 0)
 					result.append_range(add);
@@ -688,11 +778,11 @@ namespace DIMS
 			
 		}
 
-		void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& in_win, InputState*& ctrl_win, bool& disabled)
+		void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& winner)
 		{
-			//if (IsEnabled() == false) {
-			//	return;
-			//}
+			if (IsDisabled() == true) {
+				return;
+			}
 
 			//else if (winner->level() == ??? && winner->IsInConflict(this) == true)
 			//{
@@ -702,6 +792,40 @@ namespace DIMS
 			auto input_it = storage.find(input.hash());
 
 			auto end = storage.end();
+			
+
+			if  constexpr (0)
+			//I'm doing this real crude like for the visuals
+			if (ctrl_it != end || input_it != end)
+			{
+				if (!winner) {
+					winner = settings;
+
+					Enable();
+
+					if (ctrl_it != end) {
+						list.push_back(std::ref(ctrl_it->second));
+						SetInputEnabled(control, true);
+					}
+
+					if (input_it != end) {
+						list.push_back(std::ref(input_it->second));
+						SetInputEnabled(input, true);
+					}
+				}
+				else
+				{
+					if (settings->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(settings)))
+					{
+						//We should disable ourselves and end it here.
+					}
+
+
+
+
+
+				}
+			}
 
 			//change these to AttemptToPull functions.
 			if (ctrl_it != end) {
@@ -721,12 +845,11 @@ namespace DIMS
 			}
 			
 			//Basically if it's already taken, take it back
-			InputState* _in_win = in_win;
-			InputState* _ctrl_win = ctrl_win;
+			InputState* _winner = winner;
 
 			for (auto& parent : parents)
 			{
-				parent->LoadVisitorList(list, input, control, _in_win, _ctrl_win, disabled);
+				parent->LoadVisitorList(list, input, control, _winner);
 			}
 
 			
@@ -765,13 +888,19 @@ namespace DIMS
 		uint32_t updateTimestamp = 0;
 		//Active states
 
-
+		//TODO: Make SecondsSinceLastUpdate public convenience in a utility
 		float SecondsSinceLastUpdate()
 		{
 			return (RE::GetDurationOfApplicationRunTime() - updateTimestamp) / 1000.f;
 		}
 
-		void tmpUpdate(RefreshCode code)
+		/// <summary>
+		/// Current setup for a state maps update function.
+		/// </summary>
+		/// <param name="code">The personal or predetermined code for the state update event</param>
+		/// <param name="data">The data that helps contextualize the update</param>
+		/// <param name="length">the length of the data for the update</param>
+		void tmpUpdate(RefreshCode code, void* data = nullptr, size_t length = 0)
 		{
 			std::span<EntryState*> limits{ activeStates };
 
@@ -783,8 +912,9 @@ namespace DIMS
 			std::vector<EntryState*> updateList;
 
 
+			InputState* winner = nullptr;
 
-
+			bool change = false;
 
 			//I think while updating, if the headers don't say they want to update, we just take a span of their data, and add it into the span.
 			for (int i = 0; i < headers.size(); i++)
@@ -793,76 +923,33 @@ namespace DIMS
 				//How do we handle updates?
  				//First, we get the 
 				//if ()
-				updateList.append_range(header->GetViableStates(limits));
+				updateList.append_range(header->GetViableStates(limits, winner, change));
 			}
 
-			std::sort(updateList.begin(), updateList.end());
+			//if the event has done nothing, forgo all this.
+			if (!change)
+				return;
 
-			auto it = std::unique(updateList.begin(), updateList.end());
+			std::unordered_set<EntryState*> seen;
 
+			auto it = std::remove_if(
+				updateList.begin(), updateList.end(),
+				[&seen](EntryState* value) {
+					return !seen.emplace(value).second;
+				});
+
+
+			//This does not fucking work btw, we need to keep sorted to priority.
+			//std::sort(updateList.begin(), updateList.end());
+			//auto it = std::unique(updateList.begin(), updateList.end());
 			updateList.erase(it, updateList.end());
 
 			activeStates = updateList;
 
 			for (auto state : activeStates){
+				state->ClearEnabled();
 				state->SetAllInputsEnabled(false);
 			}
-
-			return;
-
-			//Sorting needs to happen here.
-
-
-			//Disabling stagnant state objects will be possible right here, but for now I'm going to leave it.
-
-			//This can actually go in GetViableStates, especially since it needs nothing but a check for what can be included.
-			// For now, i'm fine doing it here.
-			if (activeStates.size() != 0)
-			{
-				EntryState* win_state;
-
-				StateLevel level;
-
-				bool first = true;
-
-				for (auto state : activeStates)
-				{
-					if (first) {
-						win_state = state;
-						level = state->level();
-						first = false;
-						continue;
-					}
-
-					bool leave;
-
-					switch (state->level())
-					{
-					case StateLevel::Merge:
-					case StateLevel::Accord:
-					case StateLevel::Clobber:
-						switch (level)
-						{
-						case StateLevel::Clobber:
-							if (win_state->IsInConflict(state) == false)
-								continue;
-						case StateLevel::Smash:
-							break;
-
-						default:
-							continue;
-						}
-						
-						[[fallthrough]];
-					case StateLevel::Collapse:
-					case StateLevel::Smash:
-						state->Disable();
-						break;
-					}
-
-				}
-			}
-			
 		}
 
 		void CheckUpdate()
@@ -882,20 +969,13 @@ namespace DIMS
 
 			//Now that I think about it, the way this is set up, any state that can run
 
-			bool first = true;
-
-			bool collecting = true;
-
-			InputState* in_win = nullptr;
-			InputState* ctrl_win = nullptr;
-
-			bool disabled = false;
+			InputState* winner = nullptr;
 
 			for (auto state : activeStates)
 			{
 				//If we aren't collecting, we're just shutting down, primarily so multipress commands don't end up causing undue waiters that may jam functionality
 
-				state->LoadVisitorList(list, input, control, in_win, ctrl_win, disabled);
+				state->LoadVisitorList(list, input, control, winner);
 
 
 				if (state->CanInputPass(event) == false)
@@ -1137,6 +1217,7 @@ namespace DIMS
 
 		std::array<ActiveCommand::ID, EventStage::Total> blockCommands{};
 		EventStage basicCommands = EventStage::None;
+		
 		int16_t waiters = 0;
 		uint32_t highestPrecedence = 0;//The block delay is the highest level of delay priority active. If something is below this
 									// it cannot block other actions
@@ -1375,7 +1456,11 @@ namespace DIMS
 
 			command.Activate();
 
-			auto& result = sharedCommands.emplace_back(std::move(command));
+			auto& result = *sharedCommands.insert(std::upper_bound(sharedCommands.begin(), sharedCommands.end(), command, [](const auto& lhs, const auto& rhs)
+				{return lhs->priority() > rhs->priority(); }),
+				std::move(command));
+
+			//auto& result = sharedCommands.emplace_back(std::move(command));
 
 
 			if (result->IsDelayable() == true) {
@@ -1425,6 +1510,7 @@ namespace DIMS
 			
 			//commands.insert_range(commands.end(), entries);
 		}
+
 
 
 		void FailDelayCommand(ActiveCommand& act, EventStage stage)
@@ -1559,7 +1645,7 @@ namespace DIMS
 				auto it = sharedCommands.begin();
 				auto end = sharedCommands.end();
 
-				it = std::find_if(it, end, [id](ActiveCommand& entry) {return entry.id() == id; });
+				it = std::find_if(it, end, [id](const ActiveCommand& entry) {return entry.id() == id; });
 
 				if (it != end)
 					return std::addressof(*it);
@@ -1567,20 +1653,43 @@ namespace DIMS
 			
 			return nullptr;
 		}
-		
+		const ActiveCommand* GetCommandFromID(ActiveCommand::ID id) const 
+		{
+			if (id) {
+				auto it = sharedCommands.begin();
+				auto end = sharedCommands.end();
+
+				it = std::find_if(it, end, [id](const ActiveCommand& entry) {return entry.id() == id; });
+
+				if (it != end)
+					return std::addressof(*it);
+			}
+
+			return nullptr;
+		}
+
+
+
+
 		inline ActiveCommand::ID GetIDFromStage(EventStage stage) const
 		{
 			auto inch = std::countr_zero(std::to_underlying(stage));
 			return blockCommands[inch];
 		}
 
-		inline bool IsStagesBlocked(EventStage stage) const
+		inline bool IsStagesBlocked(EventStage stage, MatrixType type = MatrixType::Total) const
 		{
 			if (stage)
 			{
 				for (auto x = 1, y = 0; x < EventStage::Total; x <<= 1, y++)
 				{
 					if (stage & x && blockCommands[y]) {
+						//if (type != MatrixType::Total)
+						//{
+						//	auto command = GetCommandFromID(blockCommands[y]);
+						//	if (!command || command->entry->)
+						//}
+
 						return true;
 					}
 
@@ -1594,6 +1703,21 @@ namespace DIMS
 		{
 			auto id = GetIDFromStage(stage);
 			return GetCommandFromID(id);
+		}
+
+
+		std::array<ActiveCommand*, EventStage::Total> GetAllBlockCommands()
+		{
+			std::array<ActiveCommand*, EventStage::Total> result;
+
+			for (int i = 0; i < EventStage::Total; i++)
+			{
+				auto command = GetCommandFromID(blockCommands[i]);
+
+				result[i] = command;
+			}
+
+			return result;
 		}
 
 
@@ -1617,28 +1741,12 @@ namespace DIMS
 		/// <param name="stage">The given event stage to check. Should be a single flag.</param>
 		/// <param name="trig">If only triggers should be checked for blocking.</param>
 		/// <returns></returns>
-		bool IsStageBlocked(EventStage stage, bool trig)
+		bool IsStageBlocked(EventStage stage)
 		{
-			if (trig) {
-				//TEMP: Testing if this would suffice better. Way I see it, if it's in here it blocks triggers.
-				auto inch = std::countr_zero(std::to_underlying(stage));
-				return blockCommands[inch];
-				
-				//DELETE~>
-				//For regular trig blocking you need to visit all active commands
-				if (auto cmd = GetBlockCommandFromStage(stage)) {
-					return cmd->entry->ShouldBlockTriggers();
-				}
-			}
-			else {
-				for (auto& act : sharedCommands) {
-					//This doesn't check for stages because if it blocks once it blocks every one after
-					if (act.entry->ShouldBlockNative() == true)
-						return true;
-				}
-
-			}
-			return false;
+			auto inch = std::countr_zero(std::to_underlying(stage));
+			
+			
+			return blockCommands[inch];
 		}
 		
 
@@ -1666,7 +1774,7 @@ namespace DIMS
 			}
 
 			if (seed != hash) {
-				previous_value = IsStageBlocked(stage, true);//This has no need to ask for not trigger. it will already do non-triggers.
+				previous_value = IsStageBlocked(stage);//This has no need to ask for not trigger. it will already do non-triggers.
 				hash = seed;
 			}
 			bool result = previous_value;
@@ -2028,6 +2136,8 @@ namespace DIMS
 				testMode->commands.reserve(10);
 				InputCommand* commandA = &testMode->commands.emplace_back();
 				InputCommand* commandB = &testMode->commands.emplace_back();
+				commandA->parent = testMode;
+				commandB->parent = testMode;
 
 				auto& actionA = commandA->actions.emplace_back();
 				actionA.type = ActionType::InvokeFunction;
@@ -2313,6 +2423,31 @@ namespace DIMS
 
 
 
+		bool IsLayerBlocked(std::array<ActiveCommand*, EventStage::Total> blocks, ActiveCommand& other, EventStage stages)
+		{
+			//Ease of use function so I don't have to search for the active command every time
+
+			if (stages)
+			{
+				for (auto x = 1, y = 0; x < EventStage::Total; x <<= 1, y++)
+				{
+					auto block = blocks[y];
+
+					if (!block)
+						continue;
+
+					if (stages & x && 
+						block != &other && 
+						blocks[y]->entry->GetParentType() >= other->GetParentType()) {
+						return true;
+					}
+
+				}
+			}
+			return false;
+		}
+
+
 
 		bool HandleEvent(InputInterface event, std::unique_ptr<RE::InputEvent>& out)
 		{
@@ -2391,6 +2526,9 @@ namespace DIMS
 
 			if (active_input)
 			{
+				std::array<ActiveCommand*, EventStage::Total> blocks = active_input->GetAllBlockCommands();
+
+
 				active_input->VisitActiveCommands([&](ActiveCommand& act)
 				{
 
@@ -2411,30 +2549,33 @@ namespace DIMS
 
 						auto trigger_stages = act->GetTriggerFilter();
 
-						bool executed = false;
-
-						for (EventStage i = act.HasWaited() ? EventStage::Start : stage; i <= stage; i <<= 1)
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, trigger_stages) == false)
 						{
-							if (trigger_stages & i)
+							bool executed = false;
+
+							for (EventStage i = act.HasWaited() ? EventStage::Start : stage; i <= stage; i <<= 1)
 							{
-								if (i == EventStage::Finish && act->GetSuccess() > 1) {
-									//We'll want to let input go but not fire the action.
-									logger::info("Retaining at success level {}", act->GetSuccess());
-									break;
-								}
+								if (trigger_stages & i)
+								{
+									if (i == EventStage::Finish && act->GetSuccess() > 1) {
+										//We'll want to let input go but not fire the action.
+										logger::info("Retaining at success level {}", act->GetSuccess());
+										break;
+									}
 
 
+									
+									//if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false)
+									{
+										//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
-								if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false) {
-									//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+										EventData data{ this, act.entry, &active_input->data, event, i };
 
-									EventData data{ this, act.entry, &active_input->data, event, i };
-										
-									act.entry->RepeatExecute(data, flags, executed);
+										act.entry->RepeatExecute(data, flags, executed);
+									}
 								}
 							}
 						}
-
 						act.ClearWaiting();
 					}
 
@@ -2513,47 +2654,53 @@ namespace DIMS
 				button->device = input.device;
 				button->heldDownSecs = active->data.SecondsHeld();
 
+				auto blocks = active->GetAllBlockCommands();
+
 				active->VisitActiveCommands([&](ActiveCommand& act)
 				{
 					if (act->GetTriggerFilter() & EventStage::Finish)
 					{
-						//if (act.stages & EventStage::Finish) {
-						if (act->HasVisitedStage(EventStage::Finish) == true) {
-							//This already processed a finish, no need.
-							return;
-						}
-
-						
-						if (act.HasEarlyExit() == false) {
-							purge = false;
-							return;
-						}
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
+						{
+							//if (act.stages & EventStage::Finish) {
+							if (act->HasVisitedStage(EventStage::Finish) == true) {
+								//This already processed a finish, no need.
+								return;
+							}
 
 
-
-						//TODO: A genuine input check would be better here, because successes may not have registered yet.
-						//This seems to work, but have an issue where it only works if one is removed, then the other.
-
-						if (act->GetSuccess() > 1) {
-							//We'll want to let input go but not fire the action.
-							logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
-							return;
-						}
-						logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+							if (act.HasEarlyExit() == false) {
+								purge = false;
+								return;
+							}
 
 
-						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
-						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
-						// computing needed to process things that will never come into success.
 
-						if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) {
-							//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+							//TODO: A genuine input check would be better here, because successes may not have registered yet.
+							//This seems to work, but have an issue where it only works if one is removed, then the other.
 
-							EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
+							if (act->GetSuccess() > 1) {
+								//We'll want to let input go but not fire the action.
+								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+								return;
+							}
+							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
 
-							if (!act.entry->Execute(data, flags)) {
-								//This should do something, but currently I'm unsure what exactly.
-								//allow_execute
+
+							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+							// computing needed to process things that will never come into success.
+
+							//if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) 
+							{
+								//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+
+								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
+
+								if (!act.entry->Execute(data, flags)) {
+									//This should do something, but currently I'm unsure what exactly.
+									//allow_execute
+								}
 							}
 						}
 					}

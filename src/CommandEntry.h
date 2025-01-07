@@ -52,12 +52,42 @@ namespace DIMS
 		TriggerNode* trigger = nullptr;//because a command can have multiple trigger sets, something like this would be needed to differ them.
 		InputCommand* command = nullptr;
 
-		uint64_t priority()
+		uint64_t priority() const
 		{
 			//Priority while 
 			return command->GetPriority(trigger->priority);
 		}
 
+
+		MatrixType GetParentType() const
+		{
+			return command->GetParentType();
+		}
+
+
+		bool CompareOrder(const CommandEntry& other) const
+		{
+			//This function is a comparison of 2 command entries. Ultimately it boils down to something like this.
+			// if the type is larger.
+			// if they are the same, a function call happens on the matrix (which is only allowed to happen if they are the same.
+			// if that reports that this derives from the other, it's greater. if the other way around it's lesser.
+			// if they are unrelated, THEN priority swoops in.
+			
+			
+				switch (strong_ordering_to_int(command->CompareOrder(other.command)))
+				{
+					//This is reversed, as 0 is considered higher than 1 and so on.
+				case  1:
+					return true;
+				case -1:
+					return true;
+
+				default:
+					return priority() > priority();
+				}
+
+
+		}
 
 		bool IsReady() const
 		{

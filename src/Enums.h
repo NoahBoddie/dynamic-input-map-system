@@ -18,6 +18,13 @@ namespace DIMS
 		return -1;
 	}
 
+	constexpr int strong_ordering_to_int(std::strong_ordering o)
+	{
+		if (o == std::strong_ordering::less)    return -1;
+		if (o == std::strong_ordering::greater) return 1;
+		return 0;
+	}
+
 	enum struct ParameterType
 	{
 		None,
@@ -33,7 +40,7 @@ namespace DIMS
 
 
 
-	enum struct MatrixType
+	enum struct MatrixType : uint8_t
 	{
 		//PrefixState,
 		Mode,			//The latest mode in the controller.
@@ -184,11 +191,10 @@ namespace DIMS
 
 	enum struct StateLevel : uint8_t
 	{
-		Accord,		//Merges all commands except for the ones that have the same inputs.
-		Merge,		//Merges all commands regardless of occupying the same inputes
-		Clobber,	//Similar to smash, but as long as there are no input conflicts, it will work 
-					// note doesn't account for control v input interactions, but it will act like accord in those instances.
-		Smash,		//Merges only 
-		Collapse,	//The winner recuses themselves entirely.
+		Smother,		//Smothers commands that have the same inputs, while keeping the rest of the inputs intact.
+		Merge,			//Processes all commands in both states
+		Clobber,		//Smashes lesser commands if there's an input clash only
+		Smash,			//Smashes lesser regardless of input clash
+		Collapse,		//Collapses the lesser regardless of clash
 	};
 }

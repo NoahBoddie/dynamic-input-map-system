@@ -66,6 +66,7 @@ namespace DIMS
 			waiters = other.waiters;
 			_inputs = other._inputs;
 			_state = ActiveState::Inactive;
+			
 
 		}
 
@@ -76,6 +77,7 @@ namespace DIMS
 			waiters = other.waiters;
 			_inputs = other._inputs;
 			_state = std::exchange(other._state, ActiveState::Inactive);
+			return *this;
 		}
 
 		CommandEntry* operator->()
@@ -87,6 +89,18 @@ namespace DIMS
 		{
 			return entry.get();
 		}
+
+		CommandEntry& operator*()
+		{
+			return *entry;
+		}
+
+		const CommandEntry& operator*() const
+		{
+			return *entry;
+		}
+
+
 
 		//Activates the input
 		void Activate()

@@ -27,6 +27,15 @@ namespace DIMS
 
 		std::string name;
 
+
+		MatrixType GetParentType() const;
+
+
+		std::strong_ordering CompareOrder(const InputCommand* other) const;
+
+
+
+
 		uint64_t GetPriority(uint16_t value)
 		{
 			return value;
