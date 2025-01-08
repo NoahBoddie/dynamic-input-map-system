@@ -64,6 +64,7 @@ namespace DIMS
 			return command->GetParentType();
 		}
 
+		
 
 		bool CompareOrder(const CommandEntry& other) const
 		{
@@ -80,7 +81,7 @@ namespace DIMS
 				case  1:
 					return true;
 				case -1:
-					return true;
+					return false;
 
 				default:
 					return priority() > priority();

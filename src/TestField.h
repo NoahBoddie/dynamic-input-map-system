@@ -112,7 +112,8 @@ namespace DIMS
 					if (lhs.first == lhs.second)
 						return true;
 					//return (*lhs.first)->priority() < (*rhs.first)->priority();
-					return (*lhs.first)->CompareOrder(**rhs.first);
+					//return (*lhs.first)->CompareOrder(**rhs.first);
+					return (*rhs.first)->CompareOrder(**lhs.first);
 
 				})->first;
 
@@ -245,7 +246,7 @@ namespace DIMS
 		std::vector<InputState*> parents;
 
 		StateLevel level = StateLevel::Smother;
-		int16_t priority = 1;
+		int16_t _priority = 1;
 		tmp_Condition* condition = nullptr;
 		
 		std::string_view debugName;
@@ -480,7 +481,25 @@ namespace DIMS
 		{
 			if (condition)
 				return condition(RE::PlayerCharacter::GetSingleton());
+
 			return true;
+		}
+
+		bool tmpCheckParentCondition()
+		{
+			for (auto parent : parents)
+			{
+				if ( !parent->tmpCheckCondition() || !parent->tmpCheckParentCondition() ){
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		int16_t priority() const
+		{
+			return _priority;
 		}
 	};
 
@@ -503,13 +522,19 @@ namespace DIMS
 		{
 			auto& result = storage.emplace_back(new InputState);
 
+			result->parents = parents;
 
 			for (const auto& par : parents) {
 				headers.erase(std::remove(headers.begin(), headers.end(), par), headers.end());
 			}
 
-			headers.push_back(result.get());
-
+			
+			//headers.push_back(result.get());
+			
+			//I have no idea if what's placed will actually adhere to order, so it's best to do it here or whatever
+			headers.insert(std::upper_bound(headers.begin(), headers.end(), result.get(), [](const auto& lhs, const auto& rhs)
+					{return lhs->priority() > rhs->priority(); }),
+					result.get());
 
 			return result.get();
 		}
@@ -562,7 +587,7 @@ namespace DIMS
 
 		auto priority() const
 		{
-			return settings->priority;
+			return settings->_priority;
 		}
 
 
@@ -725,14 +750,14 @@ namespace DIMS
 			else {
 				change = true;
 
-				if (settings->tmpCheckCondition() == true) {
+				//What this actually should want to do is check the parents before checking itself so if it fails its children it doesn't take place.
+				// But that won't be needed for a while even if this isn't a very smart way of doing this.
+				if (settings->tmpCheckParentCondition() == true  && settings->tmpCheckCondition() == true) {
 					self = this;
 				}
 			}
 
 
-
-			
 
 			if (self) {
 
@@ -794,55 +819,55 @@ namespace DIMS
 			auto end = storage.end();
 			
 
+			bool add = true;
+
+			bool c_find = ctrl_it != end;
+			bool i_find = input_it != end;
+
 			if  constexpr (0)
-			//I'm doing this real crude like for the visuals
-			if (ctrl_it != end || input_it != end)
 			{
-				if (!winner) {
-					winner = settings;
+				//I'm doing this real crude like for the visuals
+				if (c_find || i_find)
+				{
+					//Do this bit first if you can, it'd be nice to have the searching not done if it's not viable.
+					if (!winner) {
+						//Winner only matters here if it does either of these things
+						if (settings->ShouldSmother() || settings->ShouldSmash())
+							winner = settings;
+					}
+					else
+					{
+						if (settings->ShouldCollapse() || winner->ShouldSmash())
+						{
+							return;
+						}
+					}
 
-					Enable();
 
-					if (ctrl_it != end) {
+					if (c_find) {
 						list.push_back(std::ref(ctrl_it->second));
 						SetInputEnabled(control, true);
 					}
 
-					if (input_it != end) {
+					if (i_find) {
 						list.push_back(std::ref(input_it->second));
 						SetInputEnabled(input, true);
 					}
 				}
-				else
-				{
-					if (settings->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(settings)))
-					{
-						//We should disable ourselves and end it here.
-					}
+			}
+			else
+			{
+				if (ctrl_it != end) {
+					list.push_back(std::ref(ctrl_it->second));
+					SetInputEnabled(control, true);
+				}
 
-
-
-
-
+				if (input_it != end) {
+					list.push_back(std::ref(input_it->second));
+					SetInputEnabled(input, true);
 				}
 			}
-
-			//change these to AttemptToPull functions.
-			if (ctrl_it != end) {
-
-				
-
-				list.push_back(std::ref(ctrl_it->second));
-				SetInputEnabled(control, true);
-			}
-
-			if (input_it != end) {
-				
-				//Do in_win check here
-
-				list.push_back(std::ref(input_it->second));
-				SetInputEnabled(input, true);
-			}
+			
 			
 			//Basically if it's already taken, take it back
 			InputState* _winner = winner;
@@ -1456,11 +1481,14 @@ namespace DIMS
 
 			command.Activate();
 
-			auto& result = *sharedCommands.insert(std::upper_bound(sharedCommands.begin(), sharedCommands.end(), command, [](const auto& lhs, const auto& rhs)
-				{return lhs->priority() > rhs->priority(); }),
-				std::move(command));
+			//I just realized ordering this like this might make higher layers not handle properly.
+			// Still gonna keep this around in case I need to remember it exists.
+			
+			//auto& result = *sharedCommands.insert(std::upper_bound(sharedCommands.begin(), sharedCommands.end(), command, [](const auto& lhs, const auto& rhs)
+			//	{return lhs->priority() > rhs->priority(); }),
+			//	std::move(command));
 
-			//auto& result = sharedCommands.emplace_back(std::move(command));
+			auto& result = sharedCommands.emplace_back(std::move(command));
 
 
 			if (result->IsDelayable() == true) {
@@ -2438,7 +2466,9 @@ namespace DIMS
 
 					if (stages & x && 
 						block != &other && 
-						blocks[y]->entry->GetParentType() >= other->GetParentType()) {
+						block->entry->command->CompareOrder(other->command)._Value >= std::strong_ordering::equal._Value
+						//blocks[y]->entry->GetParentType() <= other->GetParentType()
+						) {
 						return true;
 					}
 
@@ -2748,20 +2778,86 @@ namespace DIMS
 				return player->AsActorState()->IsSneaking();
 			};
 
+		auto isArmed = [](RE::PlayerCharacter* player)
+			{
+				return player->AsActorState()->IsWeaponDrawn();
+			};
+
+
+
+
+		auto stateArmed = testManager.CreateState();
 		{
-			auto stateCrouch = testManager.CreateState();
+
+
+			stateArmed->condition = isArmed;
+			stateArmed->debugName = "Armed";
+			stateArmed->_priority = 27;
+			stateArmed->level = StateLevel::Smother;
+			stateArmed->blockedInputs = {
+					Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
+			};
+
+			stateArmed->commands.reserve(10);
+
+
+			/*
+			
+			InputCommand* commandA = &stateArmed->commands.emplace_back();
+			commandA->parent = stateArmed;
+
+			auto& actionA = commandA->actions.emplace_back();
+			actionA.type = ActionType::InvokeFunction;
+			auto& argsA = actionA.args = std::make_unique<Argument[]>(3);
+			argsA[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsA[InvokeFunction::CUST_PARAM_1] = 26;
+
+			auto& triggerA = commandA->triggers.emplace_back();
+			triggerA.priority = 26;
+			triggerA.type = TriggerType::OnControl;
+			triggerA.conflict = ConflictLevel::Defending;
+			triggerA.stageFilter = EventStage::Start;
+			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+			//*/
+
+
+			InputCommand* commandB = &stateArmed->commands.emplace_back();
+
+			commandB->parent = stateArmed;
+
+			auto& actionB = commandB->actions.emplace_back();
+			actionB.type = ActionType::InvokeFunction;
+			auto& argsB = actionB.args = std::make_unique<Argument[]>(3);
+			argsB[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsB[InvokeFunction::CUST_PARAM_1] = 16;
+
+			auto& triggerB = commandB->triggers.emplace_back();
+			triggerB.priority = 16;
+			triggerB.type = TriggerType::OnControl;
+			triggerB.conflict = ConflictLevel::Blocking;
+			triggerB.stageFilter = EventStage::Start;
+			triggerB.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+
+
+		}
+
+
+		auto stateCrouch = testManager.CreateState();
+		{
+
 
 			stateCrouch->condition = isCrouched;
 			stateCrouch->debugName = "Crouching";
-			stateCrouch->priority = 26;
+			stateCrouch->_priority = 26;
 			stateCrouch->blockedInputs;
 			stateCrouch->blockedInputs = {
 					Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
 			};
 
 			stateCrouch->commands.reserve(10);
+
 			InputCommand* commandA = &stateCrouch->commands.emplace_back();
-			//InputCommand* commandB = &stateCrouch->commands.emplace_back();
+			commandA->parent = stateCrouch;
 
 
 
@@ -2778,7 +2874,83 @@ namespace DIMS
 			triggerA.stageFilter = EventStage::Start;
 			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
 
+			InputCommand* commandB = &stateCrouch->commands.emplace_back();
+			
+			commandB->parent = stateCrouch;
+
+
+
+			auto& actionB = commandB->actions.emplace_back();
+			actionB.type = ActionType::InvokeFunction;
+			auto& argsB = actionB.args = std::make_unique<Argument[]>(3);
+			argsB[InvokeFunction::FUNCTION_PTR] = tmp_say_a_nameNEW;
+			argsB[InvokeFunction::CUST_PARAM_1] = 18;
+
+			auto& triggerB = commandB->triggers.emplace_back();
+			triggerB.priority = 18;
+			triggerB.type = TriggerType::OnControl;
+			triggerB.conflict = ConflictLevel::Blocking;
+			triggerB.stageFilter = EventStage::Start;
+			triggerB.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
 		}
+
+		InputState* stateArmedAndCrouching = testManager.CreateState({ stateArmed, stateCrouch });
+		if (stateArmedAndCrouching)
+		{
+
+
+			stateArmedAndCrouching->condition = nullptr;
+			stateArmedAndCrouching->debugName = "ArmedAndDangerous";
+			stateArmedAndCrouching->_priority = 27;
+			stateArmedAndCrouching->level = StateLevel::Merge;
+			//stateArmedAndCrouching->blockedInputs = {
+			//		Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
+			//};
+
+			stateArmedAndCrouching->commands.reserve(10);
+
+			//InputCommand* commandA = &stateArmedAndCrouching->commands.emplace_back();
+			//InputCommand* commandB = &stateCrouch->commands.emplace_back();
+
+
+			/*
+			
+			commandA->parent = stateArmedAndCrouching;
+
+			auto& actionA = commandA->actions.emplace_back();
+			actionA.type = ActionType::InvokeFunction;
+			auto& argsA = actionA.args = std::make_unique<Argument[]>(3);
+			argsA[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsA[InvokeFunction::CUST_PARAM_1] = 26;
+
+			auto& triggerA = commandA->triggers.emplace_back();
+			triggerA.priority = 26;
+			triggerA.type = TriggerType::OnControl;
+			triggerA.conflict = ConflictLevel::Defending;
+			triggerA.stageFilter = EventStage::Start;
+			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+			//*/
+
+
+			InputCommand* commandB = &stateArmedAndCrouching->commands.emplace_back();
+
+
+			commandB->parent = stateArmedAndCrouching;
+
+			auto& actionB = commandB->actions.emplace_back();
+			actionB.type = ActionType::InvokeFunction;
+			auto& argsB = actionB.args = std::make_unique<Argument[]>(3);
+			argsB[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsB[InvokeFunction::CUST_PARAM_1] = 14;
+
+			auto& triggerB = commandB->triggers.emplace_back();
+			triggerB.priority = 14;
+			triggerB.type = TriggerType::OnControl;
+			triggerB.conflict = ConflictLevel::Defending;
+			triggerB.stageFilter = EventStage::Start;
+			triggerB.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+		}
+
 
 		testController->stateMap = testManager.CreateMap();
 	}
