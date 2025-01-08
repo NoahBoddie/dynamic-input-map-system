@@ -2,9 +2,7 @@
 
 namespace DIMS
 {
-	using ControlID = uint32_t;
-	//using ControlID = size_t;
-	
+	using ControlID = uint32_t;	
 
 	struct Input
 	{
