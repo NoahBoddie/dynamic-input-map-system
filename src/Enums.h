@@ -175,6 +175,11 @@ namespace DIMS
 	{
 		Update,			//Code sent when a sufficient amount of time has passed since the state last updated.
 
+		GraphOutputEvent,
+		GraphInputEvent,
+		GraphVarChange,
+
+
 		Custom = 1 << 31,	//This code allows for custom refresh points.
 							// when using a custom event, one needs to specify it with a character of some kind. After that
 							// the string afterwards is turned into a hash, and this hash (with the custom bit move) is what
@@ -184,6 +189,7 @@ namespace DIMS
 
 		Absolute = ~RefreshCode::Custom, //Runs even if the expected refresh code doesn't matches. Using this should also reset update's timestamp.
 	};
+
 	//TODO: A map of default checks for refresh code should exist. Something with very literal checks mashed together.
 	//So if there was a state that updates on crouch and weapon draw, it will have the default condition of happening when you draw your weapon and crouch.
 	// of course, it would need space for parameters, so it would start when you crouch and end when you stop crouching. But all that comes later.

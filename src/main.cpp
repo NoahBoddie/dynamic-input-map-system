@@ -7,38 +7,15 @@ using namespace SKSE::stl;
 //using namespace SOS;
 //using namespace RGL;
 
-#include "TestField.h"
+
+
+#include "Hooks.h"
 
 #include "xbyak/xbyak.h"
 
+
+
 using namespace DIMS;
-
-int IsCallOrJump(uintptr_t addr)
-{
-    //0x15 0xE8//These are calls, represented by negative numbers
-    //0x25 0xE9//These are jumps, represented by positive numbers.
-    //And zero represent it being neither.
-
-    if (addr)
-    {
-        auto first_byte = reinterpret_cast<uint8_t*>(addr);
-
-        switch (*first_byte)
-        {
-        case 0x15:
-        case 0xE8:
-            return -1;
-
-        case 0x25:
-        case 0xE9:
-            return 1;
-
-        }
-    }
-
-    return 0;
-}
-
 
 
 void InitializeLogging()
@@ -119,7 +96,7 @@ void InitializeMessaging() {
             break;
 
         case MessagingInterface::kDataLoaded:
-
+            CONTROLESQUE(RE::ControlMap::GetSingleton());
             break;
         }
         })) {
@@ -260,6 +237,49 @@ struct QueueReleaseHook
 };
 
 
+struct PlayerCharacter_GraphOutputEvent
+{
+    static void Install()
+    {
+        REL::Relocation<uintptr_t> Player_GraphEvent_Vtbl{ RE::VTABLE_PlayerCharacter[2] };
+        
+        func = Player_GraphEvent_Vtbl.write_vfunc(0x1, thunk);
+    }
+
+
+
+    static RE::BSEventNotifyControl thunk(RE::BSTEventSink<RE::BSAnimationGraphEvent>* a_this, RE::BSAnimationGraphEvent* a_event, RE::BSTEventSource<RE::BSAnimationGraphEvent>* a_source)
+    {
+        testController->stateMap.Update(RefreshCode::GraphOutputEvent, a_event->tag);
+        return func(a_this, a_event, a_source);
+    }
+
+    inline static REL::Relocation<decltype(thunk)> func;
+};
+
+//Please note, this needs to be very much so last, so it knows the true result of it's actions.
+struct PlayerCharacter_GraphInputEvent
+{
+    static void Install()
+    {
+        REL::Relocation<uintptr_t> Player_GraphManager_Vtbl{ RE::VTABLE_PlayerCharacter[3] };
+
+        func = Player_GraphManager_Vtbl.write_vfunc(0x1, thunk);
+    }
+    
+    static bool thunk(RE::IAnimationGraphManagerHolder* a_this, const RE::BSFixedString& a_name)
+    {
+        auto result = func(a_this, a_name);
+
+        if (result)
+            testController->stateMap.Update(RefreshCode::GraphInputEvent, a_name);
+
+        return result;
+    }
+
+    inline static REL::Relocation<decltype(thunk)> func;
+};
+
 
 struct SKSEInputHook
 {
@@ -354,10 +374,14 @@ struct SKSEInputHook
 };
 
 
+
+
+
+
+
 SKSEPluginLoad(const LoadInterface* skse) {
     InitializeLogging();
     
-
 #ifdef _DEBUG
 
     
@@ -389,12 +413,22 @@ SKSEPluginLoad(const LoadInterface* skse) {
 
     InitializeMessaging();
 
-    SKSE::AllocTrampoline(14 *  4);
+    //SKSE::AllocTrampoline(14 *  5);
+    SKSE::AllocTrampoline(300);
 
     InputHook::Install();
     ReleaseHook::Install();
     SKSEInputHook::Install();
     QueueReleaseHook::Install();
+    PlayerCharacter_GraphOutputEvent::Install();
+    PlayerCharacter_GraphInputEvent::Install();
+    
+    ControlMapSaveHook::Install();
+    ControlMapLoadHook::Install();
+    ControlMapInitHook::Install();
+    UserEventMappingCtorHook::Install();
+    UserEventSaveHook::Install();
+
 
     LoadTestManager();
 

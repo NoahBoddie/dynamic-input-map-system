@@ -139,4 +139,9 @@ namespace util {
     using SKSE::stl::report_and_fail;
 }
 
+inline float SecondsSinceLastUpdate(uint32_t time)
+{
+	return (RE::GetDurationOfApplicationRunTime() - time) / 1000.f;
+}
+
 #define RELOCATION_OFFSET(SE, AE) REL::VariantOffset(SE, AE, 0).offset()

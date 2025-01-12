@@ -35,11 +35,118 @@ namespace DIMS
 
 
 
+	struct CustomEvent : public RE::UserEventMapping
+	{
+		uint32_t& tag() { return pad14; }
+		const uint32_t& tag() const { return pad14; }
+
+
+		bool IsSignature(uint64_t hash, uint8_t index)
+		{
+			return tag() == index;
+		}
+		
+		bool CanRemapTo(uint64_t hash, uint8_t index) const
+		{
+			return IsCustomEvent() && remappable && hash == 0 && tag() == index;
+		}
+
+
+		uint8_t file_index() const
+		{
+			return tag();
+		}
+
+		bool IsCustomEvent() const
+		{
+			return indexInContext == -1;
+		}
+
+		
+		
+		static CustomEvent* CtorImpl(CustomEvent* a_this)
+		{
+
+			//Have to brought force this bit because it's uninitialized.
+			reinterpret_cast<void*&>(a_this->eventID) = nullptr;
+			a_this->inputKey = -1;
+			a_this->modifier = -1;
+			a_this->indexInContext = 0;
+			a_this->remappable = false;
+			a_this->linked = false;
+			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
+			a_this->tag() = 0;
+			return a_this;
+		}
+
+		//Not to be used unless it's in a constructor, either this or a hooked one.
+		CustomEvent* Ctor()
+		{
+			return CtorImpl(this);
+		}
+
+		CustomEvent()
+		{
+			Ctor();
+		}
+	};
+	static_assert(sizeof(CustomEvent) == sizeof(RE::UserEventMapping));
+	//TODO: Static assert the offsets too. That's important.
+
+	inline auto& operator~(RE::UserEventMapping& a_this) { return reinterpret_cast<CustomEvent&>(a_this); }
+	inline auto& operator~(const RE::UserEventMapping& a_this) { return reinterpret_cast<const CustomEvent&>(a_this); }
+
+	inline auto& operator~(RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<RE::BSTArray<CustomEvent>&>(a_this); }
+	inline auto& operator~(const RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<const RE::BSTArray<CustomEvent>&>(a_this); }
+
+
+	inline auto custom(RE::UserEventMapping* a_this) { return reinterpret_cast<CustomEvent*>(a_this); }
+	inline auto custom(const RE::UserEventMapping* a_this) { return reinterpret_cast<const CustomEvent*>(a_this); }
 
 
 
+	constexpr uint8_t controlMapVersion = 1;
 
 
+
+	inline void CONTROLESQUE(RE::ControlMap* a_controls)
+	{
+		
+		for (auto x = 0; x < RE::InputContextID::kTotal; x++)
+		{
+
+			//RE::ControlMap::GetSingleton()->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].back();
+			for (auto i = 0; i < RE::INPUT_DEVICE::kVirtualKeyboard; i++)
+			{
+
+				for (auto& value : a_controls->controlMap[x]->deviceMappings[i])
+				{
+					//Gameplay controls
+
+					logger::info("Context:{}, Device: {}({}), code: {}, userEvent: {}, modifier: {}, linked(?): {}, index: {}",
+						magic_enum::enum_name((RE::InputContextID)x),
+						magic_enum::enum_name((RE::INPUT_DEVICE)i), i, value.inputKey, value.eventID.c_str(), value.modifier, value.linked, value.indexInContext);
+				}
+			}
+		}
+
+
+		for (auto& link : a_controls->linkedMappings)
+		{
+			
+			logger::info("Device: {}({}), Mapped Name: {}, From Name: {}, Mapped Context: {}, From Context: {}",
+				magic_enum::enum_name(link.device), (int)link.device, link.linkedMappingName.c_str(), link.linkFromName.c_str(), 
+				magic_enum::enum_name(link.linkedMappingContext),
+				magic_enum::enum_name(link.linkFromContext));
+		}
+		
+		auto& in_you_go = a_controls->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard];
+		auto use_events = RE::UserEvents::GetSingleton();
+		logger::info("end {} and {}, or {} {} {}", in_you_go.size(), a_controls->pad123,
+			use_events->pad001, use_events->pad002, use_events->pad004);
+
+		constexpr auto test = offsetof(RE::UserEvents, pad001);		
+	}
 
 
 	inline void ExecuteInput(InputInterface& event)
@@ -238,10 +345,92 @@ namespace DIMS
 	};
 
 
+	enum struct CompareType : uint8_t
+	{
+		//The comparison type for most default stuff is 
+
+		kEqual,
+		kLesser,
+		kGreater,
+		kNotEqual,
+		kLesserOrEqual,
+		kGreaterOrEqual,
+	};
+
+	struct RefreshEvent
+	{
+
+
+		RefreshCode code = RefreshCode::Update;
+
+		CompareType compare = CompareType::kEqual;
+
+		double value = 0;
+		//I'm giving this an optional second value. if the compare type has a flag of "using the second value, the first value is used
+		// as a first pass, and must be equal. This increases the size some, but this isn't a particularly expensive increase so who cares.
+		// also static size increases aren't to be feared.
+		
+
+		CompareType compare() const
+		{
+
+		}
+
+		constexpr bool CheckEvent(RefreshCode a_code, double data) const
+		{
+			//Keeping the value as a double is an easy way to represent both a float and an integer
+
+			if (code == a_code)
+			{
+				switch (compare)
+				{
+				case CompareType::kNotEqual:
+					return value != data;
+
+				case CompareType::kLesser:
+					return value < data;
+
+				case CompareType::kGreaterOrEqual:
+					return value >= data;
+
+				case CompareType::kGreater:
+					return value > data;
+
+				case CompareType::kLesserOrEqual:
+					return value <= data;
+
+				case CompareType::kEqual:
+					return value == data;
+				}
+			}
+
+			return false;
+		}
+
+		constexpr RefreshEvent() = default;
+
+		constexpr auto operator <=>(const RefreshEvent&) const = default;
+
+		constexpr RefreshEvent(RefreshCode a_code, double a_value, CompareType t = CompareType::kEqual) : value{ a_value }, code{ a_code }, compare{ t } {}
+	};
+
+	
+	//enum struct Refres
+
+
+	//inline std::unordered_map<RefreshCode 
 
 
 	struct InputState : public LayerMatrix
 	{
+		struct Entry
+		{
+			//Entry state gets moved here, each input state basically has a map
+		};
+
+		static constexpr RefreshEvent genericUpdateEvent{ RefreshCode::Update, 0.0, CompareType::kGreaterOrEqual };
+
+
 		//This is a matrix setting that creates the setting
 		std::vector<InputState*> parents;
 
@@ -252,6 +441,45 @@ namespace DIMS
 		std::string_view debugName;
 
 		std::set<Input> conflictList;
+
+		//If refresh events exist, then the default update is used.
+		std::set<RefreshEvent> refreshEvents;
+		
+
+		bool CheckEvent(RefreshCode a_code, double data)
+		{
+			//returns 1 if true, 0 if false, -1 if it fails the basic state update and doesn't have any entries.
+
+			if (a_code == RefreshCode::Absolute) {
+				return true;
+			}
+
+
+			if (refreshEvents.empty() && parents.empty() == true) {
+				return genericUpdateEvent.CheckEvent(a_code, data);
+			}
+
+
+			for (auto& event : refreshEvents)
+			{
+				if (event.CheckEvent(a_code, data) == true)
+				{
+					return true;
+				}
+			}
+
+			for (auto parent : parents)
+			{
+				if (parent->CheckEvent(a_code, data) == true)
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+
 
 		MatrixType GetMatrixType() const override { return MatrixType::State; }
 
@@ -722,7 +950,7 @@ namespace DIMS
 		}
 
 
-		std::vector<EntryState*> GetViableStates(std::span<EntryState*>& limit, InputState*& winner, bool& change)
+		std::vector<EntryState*> GetViableStates(RefreshCode code, double data, std::span<EntryState*>& limit, InputState*& winner, bool& change, bool inner_change = false)
 		{
 			//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
 			// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
@@ -730,17 +958,22 @@ namespace DIMS
 
 			//It should be noted that having activated this frame is not grounds for 
 		
-			constexpr RefreshCode k_fakeUpdateCode = RefreshCode::Update;
-			constexpr RefreshCode k_fakeExpectedCode = RefreshCode::Update;
+			RefreshCode k_fakeUpdateCode = RefreshCode::Update;
+			RefreshCode k_fakeExpectedCode = RefreshCode::Update;
 			
 			EntryState* self = nullptr;
 
-			if (k_fakeUpdateCode != k_fakeExpectedCode &&  k_fakeUpdateCode != RefreshCode::Absolute) {
+			auto end = limit.end();
+			bool in_previous = std::find(limit.begin(), end, this) != end;
+
+			if (!inner_change && settings->CheckEvent(code, data) == false) {
+				//Given update either isn't within here or doesn't match parameters.
+				
 				//If it's not within the expected update but it's currently active, it will just put it in there.
 				// I may actually just make a setting for this specifically to make it faster. For now, this will work.
-				auto end = limit.end();
+				
 
-				if (std::find(limit.begin(), end, this) != end) {
+				if (in_previous) {
 					self = this;
 				}
 				else
@@ -748,12 +981,20 @@ namespace DIMS
 			}
 			//The rule is that the states in question must remain above
 			else {
-				change = true;
 
 				//What this actually should want to do is check the parents before checking itself so if it fails its children it doesn't take place.
 				// But that won't be needed for a while even if this isn't a very smart way of doing this.
 				if (settings->tmpCheckParentCondition() == true  && settings->tmpCheckCondition() == true) {
 					self = this;
+				}
+
+
+				if (self && !in_previous || !self && in_previous) {
+					inner_change = change = true;
+					
+				}
+				else {
+					inner_change = false;
 				}
 			}
 
@@ -777,19 +1018,18 @@ namespace DIMS
 			
 
 
+			//if (in_previous) {
+			//	return {};
+			//}
+		
+
+
 			std::vector<EntryState*> result;
 
 
-			auto end = limit.end();
-
-			if (std::find(limit.begin(), end, this) != end) {
-				return {};
-			}
-		
-
 			for (auto parent : parents)
 			{
-				auto add = parent->GetViableStates(limit, winner, change);
+				auto add = parent->GetViableStates(code, data, limit, winner, change, inner_change);
 
 				if (add.size() != 0)
 					result.append_range(add);
@@ -913,19 +1153,10 @@ namespace DIMS
 		uint32_t updateTimestamp = 0;
 		//Active states
 
-		//TODO: Make SecondsSinceLastUpdate public convenience in a utility
-		float SecondsSinceLastUpdate()
-		{
-			return (RE::GetDurationOfApplicationRunTime() - updateTimestamp) / 1000.f;
-		}
+	
 
-		/// <summary>
-		/// Current setup for a state maps update function.
-		/// </summary>
-		/// <param name="code">The personal or predetermined code for the state update event</param>
-		/// <param name="data">The data that helps contextualize the update</param>
-		/// <param name="length">the length of the data for the update</param>
-		void tmpUpdate(RefreshCode code, void* data = nullptr, size_t length = 0)
+
+		void Update(RefreshCode code, double data)
 		{
 			std::span<EntryState*> limits{ activeStates };
 
@@ -948,7 +1179,7 @@ namespace DIMS
 				//How do we handle updates?
  				//First, we get the 
 				//if ()
-				updateList.append_range(header->GetViableStates(limits, winner, change));
+				updateList.append_range(header->GetViableStates(code, data, limits, winner, change));
 			}
 
 			//if the event has done nothing, forgo all this.
@@ -969,20 +1200,27 @@ namespace DIMS
 			//auto it = std::unique(updateList.begin(), updateList.end());
 			updateList.erase(it, updateList.end());
 
+			//This sort needs to happen because if a state has parents that get submitted instead it should not have those be higher or lower than due.
+			std::sort(updateList.begin(), updateList.end(), [](auto& lhs, auto& rhs) {return lhs->priority() > rhs->priority(); });
+
 			activeStates = updateList;
 
 			for (auto state : activeStates){
-				state->ClearEnabled();
 				state->SetAllInputsEnabled(false);
 			}
 		}
 
+		void Update(RefreshCode code, const RE::BSFixedString& str)
+		{
+			return Update(code, Hash<HashFlags::Insensitive>(str.c_str(), str.length()));
+		}
+
 		void CheckUpdate()
 		{
-			if (SecondsSinceLastUpdate() >= Settings::updateTime) {
-				
+			if (SecondsSinceLastUpdate(updateTimestamp) >= Settings::updateTime) {
+				Update(RefreshCode::Update, updateTimestamp);//We are updating under the event of OnTick.
 				updateTimestamp = RE::GetDurationOfApplicationRunTime();
-				tmpUpdate(RefreshCode::Update);//We are updating under the event of OnTick.
+				
 			}
 		}
 
@@ -2767,8 +3005,7 @@ namespace DIMS
 	
 
 	inline MatrixController* testController = new MatrixController;
-	inline std::array<MatrixController*, (int)ControlType::Total> Controllers;
-
+	inline std::array<MatrixController*, (int)RE::InputContextID::kTotal> Controllers;
 
 
 	inline void LoadTestManager()
@@ -2783,12 +3020,26 @@ namespace DIMS
 				return player->AsActorState()->IsWeaponDrawn();
 			};
 
+		//Armed is a bit jank because of the disonance between the events I'm using and the actual states being queried
+		auto armedEvent1 = RefreshEvent{ RefreshCode::GraphOutputEvent, "WeapEquip_Out"_ih };
+		auto armedEvent2 = RefreshEvent{ RefreshCode::GraphOutputEvent, "Unequip_Out"_ih };
 
-
+		
+		
+		auto crouchEvent1 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailSneakIdle"_ih };
+		auto crouchEvent2 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailSneakLocomotion"_ih };
+		auto crouchEvent3 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailMTIdle"_ih };
+		auto crouchEvent4 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailMTLocomotion"_ih };
+		auto crouchEvent5 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailCombatIdle"_ih };
+		auto crouchEvent6 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailCombatLocomotion"_ih };
+		
 
 		auto stateArmed = testManager.CreateState();
 		{
-
+			stateArmed->refreshEvents = {
+				armedEvent1,
+				armedEvent2,
+			};
 
 			stateArmed->condition = isArmed;
 			stateArmed->debugName = "Armed";
@@ -2844,7 +3095,14 @@ namespace DIMS
 
 		auto stateCrouch = testManager.CreateState();
 		{
-
+			stateCrouch->refreshEvents = {
+				crouchEvent1,
+				crouchEvent2,
+				crouchEvent3,
+				crouchEvent4,
+				crouchEvent5,
+				crouchEvent6,
+			};
 
 			stateCrouch->condition = isCrouched;
 			stateCrouch->debugName = "Crouching";
@@ -2872,7 +3130,7 @@ namespace DIMS
 			triggerA.type = TriggerType::OnControl;
 			triggerA.conflict = ConflictLevel::Defending;
 			triggerA.stageFilter = EventStage::Start;
-			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "TEST_B";
 
 			InputCommand* commandB = &stateCrouch->commands.emplace_back();
 			
