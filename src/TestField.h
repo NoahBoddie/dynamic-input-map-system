@@ -2234,6 +2234,8 @@ namespace DIMS
 
 		std::vector<std::unique_ptr<ModeMap>> modeMaps;//The last mode is most important.
 
+		RE::InputContextID context;
+
 
 		void EmplaceMode(LayerMatrix* mode, CommandEntryPtr& command, bool strengthen) 
 		{
@@ -3236,6 +3238,8 @@ namespace DIMS
 
 			//This can be overriden with a custom entry, such as for states.
 			virtual Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) = 0;
+			
+			virtual void DestroyInstance(RE::InputContextID context) = 0;
 
 
 			virtual std::strong_ordering CompareOrder(const Matrix* other) const
@@ -3244,7 +3248,7 @@ namespace DIMS
 			}
 
 
-			virtual CommandMap CreateMap() const = 0;
+			virtual CommandMap CreateMap() = 0;
 
 
 			template <class Self>
@@ -3269,7 +3273,6 @@ namespace DIMS
 			std::vector<InputCommand> commands;//Once this is finalized, this cannot have it's values changed. so it should be private.
 
 			MatrixType type = MatrixType::Total;
-
 
 
 
@@ -3300,6 +3303,10 @@ namespace DIMS
 				return LoadInstance<Instance>(context, create_if_required);
 			}
 
+			void DestroyInstance(RE::InputContextID context) override
+			{
+				entries.erase(context);
+			}
 
 			MatrixType GetMatrixType() const override
 			{
@@ -3312,7 +3319,7 @@ namespace DIMS
 				return this ? GetMatrixType() : MatrixType::Dynamic;
 			}
 
-			CommandMap CreateMap() const override
+			CommandMap CreateMap() override
 			{
 				CommandMap map;
 
@@ -3372,7 +3379,7 @@ namespace DIMS
 			struct Instance : public LayerMatrix::Instance
 			{
 			public:
-
+				
 
 				InputState* GetBaseObject()
 				{
@@ -3622,7 +3629,12 @@ namespace DIMS
 				}
 			};
 			
-			
+
+			InputState()
+			{
+				type = MatrixType::State;
+			}
+
 			Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
 			{
 				return LoadInstance<Instance>(context, create_if_required);
@@ -3935,6 +3947,39 @@ namespace DIMS
 			}
 		};
 
+
+		struct InputMode : public LayerMatrix
+		{
+
+			struct Instance : public LayerMatrix::Instance
+			{
+			public:
+				CommandEntryPtr source = nullptr;
+				
+				bool isStrong = true;
+
+				InputMode* GetBaseObject()
+				{
+					return static_cast<InputMode*>(__super::GetBaseObject());
+				}
+				const InputMode* GetBaseObject() const
+				{
+					return static_cast<const InputMode*>(__super::GetBaseObject());
+				}
+
+			};
+
+			InputMode()
+			{
+				type = MatrixType::Mode;
+			}
+
+			Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+			{
+				return LoadInstance<Instance>(context, create_if_required);
+			}
+
+		};
 
 		inline void Testing()
 		{
