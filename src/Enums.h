@@ -41,7 +41,9 @@ namespace DIMS
 
 
 	enum struct MatrixType : uint8_t
-	{
+	{//I wanted to rename this, I don't remember what.
+
+
 		//PrefixState,
 		Mode,			//The latest mode in the controller.
 		State,			//

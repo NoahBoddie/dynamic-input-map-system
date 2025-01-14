@@ -281,6 +281,35 @@ struct PlayerCharacter_GraphInputEvent
 };
 
 
+struct PlayerCharacter_GraphVarChangedInt
+{
+    //This doesn't yet have the bones to get working quite yet. Needs write calls rather than virtual writes.
+    /*
+    static void Install()
+    {
+        REL::Relocation<uintptr_t> Player_GraphManager_Vtbl{ RE::VTABLE_PlayerCharacter[3] };
+
+        func = Player_GraphManager_Vtbl.write_vfunc(0x11, thunk);
+    }
+
+    static bool thunk(RE::IAnimationGraphManagerHolder* a_this, std::int32_t& value)
+    {
+
+        auto result = func(a_this, value);
+
+        if (result)
+            testController->stateMap.Update(RefreshCode::GraphInputEvent, a_name);
+
+        return result;
+    }
+
+    inline static REL::Relocation<decltype(thunk)> func;
+    //*/
+};
+
+
+
+
 struct SKSEInputHook
 {
     static void Install()

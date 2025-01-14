@@ -127,6 +127,13 @@ namespace DIMS
 {
 	using namespace RGL_NAMESPACE;
 	using namespace RGL_INCLUDE_NAMESPACE;
+
+	inline void EST()
+	{
+		ParameterType type;
+		~type;
+	}
+
 }
 
 

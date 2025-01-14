@@ -35,77 +35,6 @@ namespace DIMS
 
 
 
-	struct CustomEvent : public RE::UserEventMapping
-	{
-		uint32_t& tag() { return pad14; }
-		const uint32_t& tag() const { return pad14; }
-
-
-		bool IsSignature(uint64_t hash, uint8_t index)
-		{
-			return tag() == index;
-		}
-		
-		bool CanRemapTo(uint64_t hash, uint8_t index) const
-		{
-			return IsCustomEvent() && remappable && hash == 0 && tag() == index;
-		}
-
-
-		uint8_t file_index() const
-		{
-			return tag();
-		}
-
-		bool IsCustomEvent() const
-		{
-			return indexInContext == -1;
-		}
-
-		
-		
-		static CustomEvent* CtorImpl(CustomEvent* a_this)
-		{
-
-			//Have to brought force this bit because it's uninitialized.
-			reinterpret_cast<void*&>(a_this->eventID) = nullptr;
-			a_this->inputKey = -1;
-			a_this->modifier = -1;
-			a_this->indexInContext = 0;
-			a_this->remappable = false;
-			a_this->linked = false;
-			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
-			a_this->tag() = 0;
-			return a_this;
-		}
-
-		//Not to be used unless it's in a constructor, either this or a hooked one.
-		CustomEvent* Ctor()
-		{
-			return CtorImpl(this);
-		}
-
-		CustomEvent()
-		{
-			Ctor();
-		}
-	};
-	static_assert(sizeof(CustomEvent) == sizeof(RE::UserEventMapping));
-	//TODO: Static assert the offsets too. That's important.
-
-	inline auto& operator~(RE::UserEventMapping& a_this) { return reinterpret_cast<CustomEvent&>(a_this); }
-	inline auto& operator~(const RE::UserEventMapping& a_this) { return reinterpret_cast<const CustomEvent&>(a_this); }
-
-	inline auto& operator~(RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<RE::BSTArray<CustomEvent>&>(a_this); }
-	inline auto& operator~(const RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<const RE::BSTArray<CustomEvent>&>(a_this); }
-
-
-	inline auto custom(RE::UserEventMapping* a_this) { return reinterpret_cast<CustomEvent*>(a_this); }
-	inline auto custom(const RE::UserEventMapping* a_this) { return reinterpret_cast<const CustomEvent*>(a_this); }
-
-
-
-	constexpr uint8_t controlMapVersion = 1;
 
 
 
@@ -243,64 +172,6 @@ namespace DIMS
 		}
 	}
 
-
-	//Make this a non-template function with a template version. (Func can be changed to std::function that takes lambda that uses the func)
-	template <typename Func, std::same_as<std::vector<CommandEntryPtr>>... List>
-	void VisitListsTMPL(Func func, const List&... a_lists)
-	{
-		using TList = std::vector<std::shared_ptr<CommandEntry>>;
-
-		//This should compound into another static list function, this one should be inline.
-
-		//The core idea behind this is basically that it will record and mind the priorities of each, treating them as if they are in the same list
-		// even if they aren't.
-
-
-		//std::vector lists{ std::ref(a_lists)... };
-
-		std::array it_list{ std::make_pair(a_lists.begin(), a_lists.end())... };
-		std::array end_list{ std::make_pair(a_lists.end(), a_lists.end())... };
-
-		using TEMP1 = decltype(it_list);
-		using TEMP = TEMP1::value_type;//??? WHY DOES IT NEED TO WORK LIKE THIS?
-
-		while (it_list != end_list)
-		{
-
-			auto iterator = std::max_element(it_list.begin(), it_list.end(), [](auto&& lhs, auto&& rhs)
-				{
-					if (rhs.first == rhs.second)
-						return false;
-
-					if (lhs.first == lhs.second)
-						return true;
-
-					return (*lhs.first)->priority() < (*rhs.first)->priority();
-				})->first;
-
-			//I'll likely want to keep this alive
-			std::shared_ptr<CommandEntry> entry = *(++iterator);
-
-
-
-			using Result = std::invoke_result_t<Func, CommandEntry*>;
-
-			if constexpr (std::is_same_v<Result, void>)
-			{
-				func(entry.get());
-			}
-			else
-			{
-				bool go_on = func(entry.get());
-
-				if (!go_on)
-					break;
-
-
-			}
-		}
-	}
-
 	
 
 
@@ -308,14 +179,6 @@ namespace DIMS
 
 
 
-	enum struct ControlType : uint16_t //This needs to be at MOST 16 bytes. It can be less.
-	{
-		//This controls which matrix controller is being considered, the game or the menu
-		Game,
-		Menu,
-
-		Total
-	};
 
 	struct LayerMatrix : public InputMatrix
 	{
@@ -355,6 +218,8 @@ namespace DIMS
 		kNotEqual,
 		kLesserOrEqual,
 		kGreaterOrEqual,
+
+		kSecondary = 1 << 7,
 	};
 
 	struct RefreshEvent
@@ -363,9 +228,10 @@ namespace DIMS
 
 		RefreshCode code = RefreshCode::Update;
 
-		CompareType compare = CompareType::kEqual;
+		CompareType _compare = CompareType::kEqual;
 
-		double value = 0;
+		double value1 = 0;
+		double value2 = 0;
 		//I'm giving this an optional second value. if the compare type has a flag of "using the second value, the first value is used
 		// as a first pass, and must be equal. This increases the size some, but this isn't a particularly expensive increase so who cares.
 		// also static size increases aren't to be feared.
@@ -373,16 +239,36 @@ namespace DIMS
 
 		CompareType compare() const
 		{
-
+			return _compare & ~CompareType::kSecondary;
 		}
 
-		constexpr bool CheckEvent(RefreshCode a_code, double data) const
+		CompareType IsSecondary() const
+		{
+			return (_compare & CompareType::kSecondary);
+		}
+
+		constexpr bool CheckEvent(RefreshCode a_code, double data1, double data2) const
 		{
 			//Keeping the value as a double is an easy way to represent both a float and an integer
 
+			double value;
+			double data;
 			if (code == a_code)
 			{
-				switch (compare)
+				if (IsSecondary() == true) {
+					if (value1 != data1)
+						return false;
+
+					value = value2;
+					data = data2;
+				}
+				else
+				{
+					value = value1;
+					data = data1;
+				}
+
+				switch (compare())
 				{
 				case CompareType::kNotEqual:
 					return value != data;
@@ -411,10 +297,98 @@ namespace DIMS
 
 		constexpr auto operator <=>(const RefreshEvent&) const = default;
 
-		constexpr RefreshEvent(RefreshCode a_code, double a_value, CompareType t = CompareType::kEqual) : value{ a_value }, code{ a_code }, compare{ t } {}
+		constexpr RefreshEvent(RefreshCode a_code, double a_value, CompareType t = CompareType::kEqual) : value1{ a_value }, value2{ 0 }, code{ a_code }, _compare{ t } {}
+		constexpr RefreshEvent(RefreshCode a_code, double a_value1, double a_value2, CompareType t = CompareType::kEqual) :
+			value1{ a_value1 },
+			value2{ a_value2 },
+			code{ a_code },
+			_compare{ t | CompareType::kSecondary } {}
 	};
 
+	struct RefreshData
+	{
+		double value;
+
+		RefreshData(double v) : value{ v } {}
+		RefreshData(const RE::BSFixedString& str) : value{ (double)Hash<HashFlags::Insensitive>(str.c_str(), str.length()) }{}
+	};
 	
+
+	
+
+	struct CustomEvent : public RE::UserEventMapping
+	{
+		uint32_t& tag() { return pad14; }
+		const uint32_t& tag() const { return pad14; }
+
+
+		bool IsSignature(uint64_t hash, uint8_t index)
+		{
+			return tag() == index;
+		}
+
+		bool CanRemapTo(uint64_t hash, uint8_t index) const
+		{
+			return IsCustomEvent() && remappable && hash == 0 && tag() == index;
+		}
+
+
+		uint8_t file_index() const
+		{
+			return tag();
+		}
+
+		bool IsCustomEvent() const
+		{
+			return indexInContext == -1;
+		}
+
+
+
+		static CustomEvent* CtorImpl(CustomEvent* a_this)
+		{
+
+			//Have to brought force this bit because it's uninitialized.
+			reinterpret_cast<void*&>(a_this->eventID) = nullptr;
+			a_this->inputKey = -1;
+			a_this->modifier = -1;
+			a_this->indexInContext = 0;
+			a_this->remappable = false;
+			a_this->linked = false;
+			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
+			a_this->tag() = 0;
+			return a_this;
+		}
+
+		//Not to be used unless it's in a constructor, either this or a hooked one.
+		CustomEvent* Ctor()
+		{
+			return CtorImpl(this);
+		}
+
+		CustomEvent()
+		{
+			Ctor();
+		}
+	};
+	static_assert(sizeof(CustomEvent) == sizeof(RE::UserEventMapping));
+	//TODO: Static assert the offsets too. That's important.
+
+	inline auto& operator~(RE::UserEventMapping& a_this) { return reinterpret_cast<CustomEvent&>(a_this); }
+	inline auto& operator~(const RE::UserEventMapping& a_this) { return reinterpret_cast<const CustomEvent&>(a_this); }
+
+	inline auto& operator~(RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<RE::BSTArray<CustomEvent>&>(a_this); }
+	inline auto& operator~(const RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<const RE::BSTArray<CustomEvent>&>(a_this); }
+
+
+	inline auto custom(RE::UserEventMapping* a_this) { return reinterpret_cast<CustomEvent*>(a_this); }
+	inline auto custom(const RE::UserEventMapping* a_this) { return reinterpret_cast<const CustomEvent*>(a_this); }
+
+
+
+	constexpr uint8_t controlMapVersion = 1;
+
+
 	//enum struct Refres
 
 
@@ -446,7 +420,7 @@ namespace DIMS
 		std::set<RefreshEvent> refreshEvents;
 		
 
-		bool CheckEvent(RefreshCode a_code, double data)
+		bool CheckEvent(RefreshCode a_code, double data1, double data2)
 		{
 			//returns 1 if true, 0 if false, -1 if it fails the basic state update and doesn't have any entries.
 
@@ -456,13 +430,13 @@ namespace DIMS
 
 
 			if (refreshEvents.empty() && parents.empty() == true) {
-				return genericUpdateEvent.CheckEvent(a_code, data);
+				return genericUpdateEvent.CheckEvent(a_code, data1, data2);
 			}
 
 
 			for (auto& event : refreshEvents)
 			{
-				if (event.CheckEvent(a_code, data) == true)
+				if (event.CheckEvent(a_code, data1, data2) == true)
 				{
 					return true;
 				}
@@ -470,7 +444,7 @@ namespace DIMS
 
 			for (auto parent : parents)
 			{
-				if (parent->CheckEvent(a_code, data) == true)
+				if (parent->CheckEvent(a_code, data1, data2) == true)
 				{
 					return true;
 				}
@@ -950,7 +924,7 @@ namespace DIMS
 		}
 
 
-		std::vector<EntryState*> GetViableStates(RefreshCode code, double data, std::span<EntryState*>& limit, InputState*& winner, bool& change, bool inner_change = false)
+		std::vector<EntryState*> GetViableStates(RefreshCode code, double data1, double data2, std::span<EntryState*>& limit, InputState*& winner, bool& change, bool inner_change = false)
 		{
 			//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
 			// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
@@ -966,7 +940,7 @@ namespace DIMS
 			auto end = limit.end();
 			bool in_previous = std::find(limit.begin(), end, this) != end;
 
-			if (!inner_change && settings->CheckEvent(code, data) == false) {
+			if (!inner_change && settings->CheckEvent(code, data1, data2) == false) {
 				//Given update either isn't within here or doesn't match parameters.
 				
 				//If it's not within the expected update but it's currently active, it will just put it in there.
@@ -1029,7 +1003,7 @@ namespace DIMS
 
 			for (auto parent : parents)
 			{
-				auto add = parent->GetViableStates(code, data, limit, winner, change, inner_change);
+				auto add = parent->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
 
 				if (add.size() != 0)
 					result.append_range(add);
@@ -1156,7 +1130,7 @@ namespace DIMS
 	
 
 
-		void Update(RefreshCode code, double data)
+		void Update(RefreshCode code, RefreshData data1, RefreshData data2 = 0)
 		{
 			std::span<EntryState*> limits{ activeStates };
 
@@ -1179,7 +1153,7 @@ namespace DIMS
 				//How do we handle updates?
  				//First, we get the 
 				//if ()
-				updateList.append_range(header->GetViableStates(code, data, limits, winner, change));
+				updateList.append_range(header->GetViableStates(code, data1.value, data2.value, limits, winner, change));
 			}
 
 			//if the event has done nothing, forgo all this.
@@ -1208,11 +1182,6 @@ namespace DIMS
 			for (auto state : activeStates){
 				state->SetAllInputsEnabled(false);
 			}
-		}
-
-		void Update(RefreshCode code, const RE::BSFixedString& str)
-		{
-			return Update(code, Hash<HashFlags::Insensitive>(str.c_str(), str.length()));
 		}
 
 		void CheckUpdate()
@@ -3213,5 +3182,767 @@ namespace DIMS
 		testController->stateMap = testManager.CreateMap();
 	}
 
+
+
+
+	namespace IMV2
+	{
+		using CommandMap = std::unordered_map<Input::Hash, std::vector<std::shared_ptr<CommandEntry>>>;
+
+
+		
+
+		struct Matrix
+		{
+			struct Instance
+			{
+				virtual ~Instance() = default;
+
+				Matrix* base = nullptr;
+
+				RE::InputContextID context = RE::InputContextID::kNone;
+
+				CommandMap storage;
+
+				//Utilize covariance with this
+				Matrix* GetBaseObject()
+				{
+					return base;
+				}
+				const Matrix* GetBaseObject() const
+				{
+					return base;
+				}
+
+				//Ensure that an IMatrix makes this.
+			};
+			using InstancePtr = std::unique_ptr<Instance>;
+
+
+
+
+			virtual ~Matrix() = default;
+
+
+
+			virtual bool CanInputPass(RE::InputEvent* event) const
+			{
+				return true;
+			}
+
+
+			virtual MatrixType GetMatrixType() const = 0;
+
+
+			//This can be overriden with a custom entry, such as for states.
+			virtual Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) = 0;
+
+
+			virtual std::strong_ordering CompareOrder(const Matrix* other) const
+			{
+				return std::strong_ordering::equal;
+			}
+
+
+			virtual CommandMap CreateMap() const = 0;
+
+
+			template <class Self>
+			auto ObtainContextInstance(this Self&& a_this, RE::InputContextID context)// -> Self::Instance*
+			{
+				using Thing = std::remove_pointer_t<std::remove_cvref_t<Self>>::Instance;
+				return static_cast<Thing*>(a_this.GetContextInstance(context, true));
+			}
+			
+			//Instance* ObtainContextInstance(RE::InputContextID context)
+			//{
+			//	return GetContextInstance(context, true);
+			//}
+		};
+
+
+		struct InputMatrix : public Matrix
+		{
+
+			std::map<RE::InputContextID, InstancePtr> entries;
+
+			std::vector<InputCommand> commands;//Once this is finalized, this cannot have it's values changed. so it should be private.
+
+			MatrixType type = MatrixType::Total;
+
+
+
+
+			
+		protected:
+			
+
+			template<std::derived_from<Instance> IType>
+			IType* LoadInstance(RE::InputContextID context, bool create_if_required = false)
+			{
+				//The idea with this is making a setup where the item pocket, and the thing gotten are one in the same.
+				auto& slot = entries[context];
+
+				if (create_if_required && !slot) {
+					slot = std::make_unique<IType>();
+					slot->base = this;
+					slot->context = context;
+					slot->storage = CreateMap();
+					//TODO: Need to make context right here.
+				}
+
+				return static_cast<IType*>(slot.get());
+			}
+		public:
+
+			Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+			{
+				return LoadInstance<Instance>(context, create_if_required);
+			}
+
+
+			MatrixType GetMatrixType() const override
+			{
+				return type;
+			}
+
+
+			MatrixType FetchMatrixType() const
+			{
+				return this ? GetMatrixType() : MatrixType::Dynamic;
+			}
+
+			CommandMap CreateMap() const override
+			{
+				CommandMap map;
+
+				for (auto& command : commands)
+				{
+					for (auto& trigger : command.triggers)
+					{
+						CommandEntryPtr entry = std::make_shared<CommandEntry>(&command, &trigger);
+
+						for (auto input : trigger.GetInputs())
+						{
+							auto& list = map[input];
+
+							list.insert(std::upper_bound(list.begin(), list.end(), entry, [](const std::shared_ptr<CommandEntry>& lhs, const std::shared_ptr<CommandEntry>& rhs)
+								{return lhs->priority() > rhs->priority(); }),
+								entry);
+						}
+					}
+				}
+
+				return map;
+			}
+
+		};
+
+
+
+		struct LayerMatrix : public InputMatrix
+		{
+			//Blocked user events are stored as device less id codes.
+			std::set<Input> blockedInputs;
+
+			//I would like some extra settings for this. If you have a device that has -1 it means that device is entirely disabled.
+			// if you have one that has a none device and is fully negative that means ALL controls are prevented from passing through.
+			// Selected will do this sometimes, fully preventing passing through to completely reinvent the bindings.
+
+			bool CanInputPass(RE::InputEvent* event) const override
+			{
+				auto& event_name = event->QUserEvent();
+				Input input = event;
+
+				Input userEvent{ RE::INPUT_DEVICE::kNone, Hash(event_name.c_str(), event_name.length()) };
+
+				return !blockedInputs.contains(input) && !blockedInputs.contains(userEvent);
+			}
+		};
+
+
+
+
+
+
+
+
+		struct InputState : public LayerMatrix
+		{
+			struct Instance : public LayerMatrix::Instance
+			{
+			public:
+
+
+				InputState* GetBaseObject()
+				{
+					return static_cast<DIMS::IMV2::InputState*>(__super::GetBaseObject());
+				}
+				const InputState* GetBaseObject() const
+				{
+					return static_cast<const DIMS::IMV2::InputState*>(__super::GetBaseObject());
+				}
+
+
+				auto priority() const
+				{
+					return  GetBaseObject()->_priority;
+				}
+
+
+				auto level() const
+				{
+					return GetBaseObject()->level;
+				}
+
+
+				bool IsInConflict(Instance* other) const
+				{
+					return GetBaseObject()->IsInConflict(other->GetBaseObject());
+				}
+
+
+				void SetInputEnabled(Input input, bool value)
+				{
+
+					auto it = storage.find(input.hash());
+
+					auto end = storage.end();
+
+					if (it == end) {
+						return;
+					}
+
+					for (auto& entry : it->second)
+					{
+						entry->SetEnabled(value);
+					}
+
+					for (auto parent : GetBaseObject()->parents)
+					{
+						parent->ObtainContextInstance(context)->SetInputEnabled(input, value);
+					}
+				}
+
+				//This is called on all activeStates at the end of a successful update.
+				void SetAllInputsEnabled(bool value = true)
+				{
+					for (auto& [key, lists] : storage)
+					{
+						for (auto& entry : lists)
+						{
+							entry->SetEnabled(value);
+						}
+
+					}
+
+					for (auto parent : GetBaseObject()->parents)
+					{
+						parent->ObtainContextInstance(context)->SetAllInputsEnabled(value);
+					}
+				}
+
+				bool CanInputPass(RE::InputEvent* event) const
+				{
+					return GetBaseObject()->CanInputPass(event);
+				}
+
+				bool DerivesFrom(Instance* other)
+				{
+					if (!other)
+						return false;
+
+					return GetBaseObject()->DerivesFrom(other->GetBaseObject());
+
+				}
+
+
+				std::vector<Instance*> GetViableStates(RefreshCode code, double data1, double data2, std::span<Instance*>& limit, InputState*& winner, bool& change, bool inner_change = false)
+				{
+					//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
+					// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
+
+
+					//It should be noted that having activated this frame is not grounds for 
+
+					RefreshCode k_fakeUpdateCode = RefreshCode::Update;
+					RefreshCode k_fakeExpectedCode = RefreshCode::Update;
+
+					Instance* self = nullptr;
+
+					auto end = limit.end();
+					bool in_previous = std::find(limit.begin(), end, this) != end;
+
+					if (!inner_change && GetBaseObject()->CheckEvent(code, data1, data2) == false) {
+						//Given update either isn't within here or doesn't match parameters.
+
+						//If it's not within the expected update but it's currently active, it will just put it in there.
+						// I may actually just make a setting for this specifically to make it faster. For now, this will work.
+
+
+						if (in_previous) {
+							self = this;
+						}
+						else
+							return {};
+					}
+					//The rule is that the states in question must remain above
+					else {
+
+						//What this actually should want to do is check the parents before checking itself so if it fails its children it doesn't take place.
+						// But that won't be needed for a while even if this isn't a very smart way of doing this.
+						if (GetBaseObject()->tmpCheckParentCondition() == true && GetBaseObject()->tmpCheckCondition() == true) {
+							self = this;
+						}
+
+
+						if (self && !in_previous || !self && in_previous) {
+							inner_change = change = true;
+
+						}
+						else {
+							inner_change = false;
+						}
+					}
+
+
+
+					if (self) {
+
+						//Here a question about whether this should be viable based on the winner is cast forth.
+
+						if (!winner) {
+							winner = GetBaseObject();
+							return { self };
+						}
+						else {
+							bool collapse = GetBaseObject()->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(GetBaseObject()));
+
+							if (collapse)
+								return {};
+						}
+					}
+
+
+
+					//if (in_previous) {
+					//	return {};
+					//}
+
+
+
+					std::vector<Instance*> result;
+
+
+					for (auto parent : GetBaseObject()->parents)
+					{
+						auto add = parent->ObtainContextInstance(context)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
+
+						if (add.size() != 0)
+							result.append_range(add);
+					}
+
+					return result;
+				}
+
+				bool CheckConditions(std::span<StateEntry>& end)
+				{
+
+				}
+
+				void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& winner)
+				{
+					auto ctrl_it = storage.find(control.hash());
+					auto input_it = storage.find(input.hash());
+
+					auto end = storage.end();
+
+
+					bool add = true;
+
+					bool c_find = ctrl_it != end;
+					bool i_find = input_it != end;
+
+					auto settings = GetBaseObject();
+
+					if  constexpr (0)
+					{
+						//I'm doing this real crude like for the visuals
+						if (c_find || i_find)
+						{
+							//Do this bit first if you can, it'd be nice to have the searching not done if it's not viable.
+							if (!winner) {
+								//Winner only matters here if it does either of these things
+								if (settings->ShouldSmother() || settings->ShouldSmash())
+									winner = settings;
+							}
+							else
+							{
+								if (settings->ShouldCollapse() || winner->ShouldSmash())
+								{
+									return;
+								}
+							}
+
+
+							if (c_find) {
+								list.push_back(std::ref(ctrl_it->second));
+								SetInputEnabled(control, true);
+							}
+
+							if (i_find) {
+								list.push_back(std::ref(input_it->second));
+								SetInputEnabled(input, true);
+							}
+						}
+					}
+					else
+					{
+						if (ctrl_it != end) {
+							list.push_back(std::ref(ctrl_it->second));
+							SetInputEnabled(control, true);
+						}
+
+						if (input_it != end) {
+							list.push_back(std::ref(input_it->second));
+							SetInputEnabled(input, true);
+						}
+					}
+
+
+					//Basically if it's already taken, take it back
+					InputState* _winner = winner;
+
+					for (auto& parent : settings->parents)
+					{
+						parent->ObtainContextInstance(context)->LoadVisitorList(list, input, control, _winner);
+					}
+
+
+				}
+			};
+			
+			
+			Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+			{
+				return LoadInstance<Instance>(context, create_if_required);
+			}
+
+
+
+
+			static constexpr RefreshEvent genericUpdateEvent{ RefreshCode::Update, 0.0, CompareType::kGreaterOrEqual };
+
+
+
+			//This is a matrix setting that creates the setting
+			std::vector<InputState*> parents;
+
+			StateLevel level = StateLevel::Smother;
+			int16_t _priority = 1;
+			tmp_Condition* condition = nullptr;
+
+			std::string_view debugName;
+
+			std::set<Input> conflictList;
+
+			//If refresh events exist, then the default update is used.
+			std::set<RefreshEvent> refreshEvents;
+
+
+			bool CheckEvent(RefreshCode a_code, double data1, double data2)
+			{
+				//returns 1 if true, 0 if false, -1 if it fails the basic state update and doesn't have any entries.
+
+				if (a_code == RefreshCode::Absolute) {
+					return true;
+				}
+
+
+				if (refreshEvents.empty() && parents.empty() == true) {
+					return genericUpdateEvent.CheckEvent(a_code, data1, data2);
+				}
+
+
+				for (auto& event : refreshEvents)
+				{
+					if (event.CheckEvent(a_code, data1, data2) == true)
+					{
+						return true;
+					}
+				}
+
+				for (auto parent : parents)
+				{
+					if (parent->CheckEvent(a_code, data1, data2) == true)
+					{
+						return true;
+					}
+				}
+
+				return false;
+			}
+
+
+
+			MatrixType GetMatrixType() const override { return MatrixType::State; }
+
+			std::strong_ordering CompareOrder(const Matrix* o) const override
+			{
+				auto other = dynamic_cast<const InputState*>(o);
+
+				if (DerivesFrom(other) == true) {
+					return std::strong_ordering::greater;
+				}
+
+				if (other->DerivesFrom(this) == true) {
+					return std::strong_ordering::less;
+				}
+
+				return std::strong_ordering::equal;
+			}
+
+			//If input is relevant to the below
+			bool IsInputRelevant() const
+			{
+				switch (level)
+				{
+				case StateLevel::Smother:
+				case StateLevel::Clobber:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+			bool ShouldSmash() const
+			{
+				switch (level)
+				{
+				case StateLevel::Smash:
+				case StateLevel::Clobber:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+			//Collapse is the act of crumpling despite not being asked to.
+			bool ShouldCollapse() const
+			{
+				switch (level)
+				{
+				case StateLevel::Smash:
+				case StateLevel::Clobber:
+				case StateLevel::Collapse:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+			bool ShouldSmother() const
+			{
+
+				switch (level)
+				{
+				case StateLevel::Smash:
+				case StateLevel::Clobber:
+				case StateLevel::Smother:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+
+			bool ShouldBeSmothered() const
+			{
+				return level != StateLevel::Merge;
+			}
+
+
+
+
+			void tmpBuildConflictList()
+			{
+				conflictList.clear();
+
+				for (auto& command : commands)
+				{
+					for (auto& trigger : command.triggers)
+					{
+						conflictList.insert_range(trigger.GetInputs());
+					}
+				}
+
+				for (auto parent : parents)
+				{
+					//This assumes that the previous has built it's own list.
+					conflictList.insert_range(parent->conflictList);
+				}
+			}
+
+			bool IsInConflict(const InputState* other) const
+			{
+				auto control_map = RE::ControlMap::GetSingleton();
+
+
+				for (auto input : conflictList) {
+					if (other->HasInput(input) == true)
+						return true;
+				}
+
+				if (other->HasRawInputs() == true)
+				{
+					for (auto input : other->conflictList) {
+						if (HasInputAsUserEvent(input) == true)
+							return true;
+
+
+						continue;
+
+						//saving this just in case
+						if (input.IsUserEvent() == true)
+							continue;
+
+
+						if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+							//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+							Input ctrl = Input::CreateUserEvent(name);
+
+							if (conflictList.contains(ctrl) == true)
+								return true;
+						}
+
+
+					}
+				}
+
+				return false;
+			}
+
+
+			bool IsInConflict(const InputState* other, Input input) const
+			{
+				return HasInput(input) && other->HasInput(input);
+			}
+
+
+			//A bool will get flipped on if we even need to look for user events in the conflict list.
+			bool HasRawInputs() const
+			{
+				//When a raw input is added to a state, a boolean flag will be ticked that will start the search from the other side.
+				return true;
+			}
+
+
+
+			bool HasInputAsUserEvent(Input input) const
+			{
+				if (input.IsUserEvent() == false) {
+					auto control_map = RE::ControlMap::GetSingleton();
+
+					if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+						//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+						Input ctrl = Input::CreateUserEvent(name);
+
+						if (conflictList.contains(ctrl) == true)
+							return true;
+					}
+				}
+
+				return false;
+			}
+
+
+			bool HasInput(Input input) const
+			{
+				if (conflictList.contains(input) == true)
+					return true;
+
+				return HasInputAsUserEvent(input);
+			}
+
+			bool IsInConflict(const InputState& other)
+			{
+				return IsInConflict(&other);
+			}
+
+
+			bool DerivesFrom(const InputState* other) const
+			{
+				if (!other)
+					return false;
+
+				if (this == other)
+					return true;
+
+				for (auto parent : parents)
+				{
+					if (parent->DerivesFrom(other) == true)
+						return true;
+				}
+
+				return false;
+
+			}
+
+			bool CanInputPass(RE::InputEvent* event) const override
+			{
+				auto prev = __super::CanInputPass(event);
+
+				if (prev)
+				{
+					for (auto parent : parents)
+					{
+						if (parent->CanInputPass(event) == false) {
+							return false;
+						}
+					}
+				}
+
+				return prev;
+			}
+
+			bool tmpCheckCondition()
+			{
+				if (condition)
+					return condition(RE::PlayerCharacter::GetSingleton());
+
+				return true;
+			}
+
+			bool tmpCheckParentCondition()
+			{
+				for (auto parent : parents)
+				{
+					if (!parent->tmpCheckCondition() || !parent->tmpCheckParentCondition()) {
+						return false;
+					}
+				}
+
+				return true;
+			}
+
+			int16_t priority() const
+			{
+				return _priority;
+			}
+		};
+
+
+		inline void Testing()
+		{
+			InputState state{};
+
+		}
+
+
+	}
 
 }
