@@ -455,9 +455,10 @@ SKSEPluginLoad(const LoadInterface* skse) {
     ControlMapSaveHook::Install();
     ControlMapLoadHook::Install();
     ControlMapInitHook::Install();
-    UserEventMappingCtorHook::Install();
+    //UserEventMappingCtorHook::Install();
     UserEventSaveHook::Install();
-
+    UserEventCategoryHook::Install();
+    UserEventCategory1Hook::Install();
 
     LoadTestManager();
 

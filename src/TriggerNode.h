@@ -65,7 +65,7 @@ namespace DIMS
 
 
 		[[deprecated("No longer needed, command maps handle this, put on retirement")]]
-		bool CanHandleEvent_Deprecated(RE::InputEvent* event) const
+		bool CanHandleEvent(RE::InputEvent* event) const
 		{
 			auto trig_info = triggerInfo[type];
 

@@ -21,18 +21,17 @@ namespace DIMS
         {
             struct
             {
-                //8 + 1 + 2 + 2//should be 13
                 uint64_t fileID;
-                uint8_t eventID;
+                uint32_t eventID;
                 uint16_t inputID;
                 uint16_t modifierID;
             };
 
-            uint8_t bytes[13];
+            uint8_t bytes[16];
         };
         static constexpr size_t size()
         {
-            return 13;
+            return 16;
         }
 
         
@@ -53,8 +52,8 @@ namespace DIMS
         }
 
         UserEventData(CustomEvent* mapping) : 
-            fileID{0},
-            eventID{(uint8_t)mapping->file_index()},
+            fileID{ mapping->handle()->file() },
+            eventID{mapping->handle()->id()},
             inputID{ mapping->inputKey },
             modifierID{mapping->modifier}
         {
@@ -133,7 +132,7 @@ namespace DIMS
             //This needs to be more careful and explicit. At the end, check if it's reached it's end, throw if it hasn't
 
             std::ifstream myfile;
-            myfile.open("example.txt");
+            myfile.open(controlMapPath);
 
             if (myfile.bad() == true)
                 return;
@@ -243,7 +242,7 @@ namespace DIMS
             {
                 logger::info("saving...");
                 std::ofstream myfile;
-                myfile.open("example.txt");
+                myfile.open(controlMapPath);
 
                 
                 
@@ -313,16 +312,28 @@ namespace DIMS
         {
             func(a_this, path);
 
-            CustomEvent new_mapping{};
+            //This is honestly the simplest way to purge the data of something so trival.
+            //Ultimately this means people adding stuff in will be unsafe though.
+            /*
+            for (auto x = 0; x < RE::InputContextID::kTotal; x++)
+            {
+                for (auto i = 0; i < RE::INPUT_DEVICE::kVirtualKeyboard; i++)
+                {
+                    for (auto& value : a_this->controlMap[x]->deviceMappings[i])
+                    {
+                        value.pad14 = -1;
+                    }
+                }
+            }
+            //*/
+
+
+            CustomEvent new_mapping{ "TestDocument", "TESTAREA", 1};
 
             new_mapping.eventID = "TEST_B";
-            new_mapping.indexInContext = 255;
             new_mapping.inputKey = 48;
-            new_mapping.linked = false;
             new_mapping.remappable = true;
-            new_mapping.modifier = 0;
             new_mapping.userEventGroupFlag = {};
-            new_mapping.tag() = 1;
 
             a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].push_back(new_mapping);
         }
@@ -332,7 +343,7 @@ namespace DIMS
 
 
     //write_branch
-    struct UserEventMappingCtorHook
+    struct [[deprecated("Constructor has no set location and no place to hook.")]] UserEventMappingCtorHook
     {
         
         static void Install()
@@ -359,7 +370,7 @@ namespace DIMS
 
             auto placed_call = IsCallOrJump(hook_addr) > 0;
             
-            auto place_query = trampoline.write_branch<5>(hook_addr, (uintptr_t)CustomEvent::CtorImpl);
+            auto place_query = trampoline.write_branch<5>(hook_addr, (uintptr_t)CustomEvent::CtorImpl2);
 
             //if (!placed_call)
             //    func = (uintptr_t)code.getCode();
@@ -449,5 +460,81 @@ namespace DIMS
         }
 
     };
+
+
+    struct UserEventCategory1Hook
+    {
+
+        static void Install()
+        {
+
+            //SE: 0xC13230, AE: 0x000000, VR: ???
+            REL::Relocation<uintptr_t> hook{ REL::RelocationID{67261, 0}, 0x86 };
+            
+            struct Code : Xbyak::CodeGenerator
+            {
+                Code()
+                {
+                    lea(r8, ptr[rsp + 0x88 + -0x50 + 0x8]);//I'm really not sure where the plus 8 came from but if it works fuck it we ball.
+                    
+
+                    mov(rax, (uintptr_t)thunk);
+                    jmp(rax);
+
+                }
+            } static code{};
+
+            auto& trampoline = SKSE::GetTrampoline();
+
+            func = trampoline.write_call<5>(hook.address(), (uintptr_t)code.getCode());
+
+
+        }
+
+        static bool thunk(CustomEvent& lhs, RE::BSFixedString& rhs, CustomEvent& out)
+        {
+            auto result = func(lhs, rhs, out);
+
+            if (result)
+                out.handle() = lhs.handle();
+
+
+            return result;
+
+        }
+
+
+        inline static REL::Relocation<decltype(thunk)> func;
+    };
+
+    //write_call
+    struct UserEventCategoryHook
+    {
+
+        static void Install()
+        {
+            //C13230+111
+            REL::Relocation<uintptr_t> hook{ REL::RelocationID{67261, 0}, 0x111 };
+
+            func = SKSE::GetTrampoline().write_call<5>(hook.address(), thunk);
+
+            logger::info("UserEventCategoryHook complete...");
+        }
+
+        static int32_t thunk(CustomEvent* lhs, CustomEvent* rhs)
+        {
+            auto cmp = lhs->handle()->category() <=> rhs->handle()->category();
+
+            if (cmp == std::strong_ordering::equivalent)
+                return func(lhs, rhs);
+
+            return -1;
+
+        }
+
+
+        inline static REL::Relocation<decltype(thunk)> func;
+    };
+
 
 }

@@ -52,9 +52,10 @@ namespace DIMS
 				{
 					//Gameplay controls
 
-					logger::info("Context:{}, Device: {}({}), code: {}, userEvent: {}, modifier: {}, linked(?): {}, index: {}",
+					logger::info("Context:{}, Device: {}({}), code: {}, userEvent: {}, modifier: {}, linked(?): {}, index: {}, handle: {}",
 						magic_enum::enum_name((RE::InputContextID)x),
-						magic_enum::enum_name((RE::INPUT_DEVICE)i), i, value.inputKey, value.eventID.c_str(), value.modifier, value.linked, value.indexInContext);
+						magic_enum::enum_name((RE::INPUT_DEVICE)i), i, value.inputKey, value.eventID.c_str(), value.modifier, value.linked, value.indexInContext
+					, value.pad14);
 				}
 			}
 		}
@@ -185,6 +186,9 @@ namespace DIMS
 		//Blocked user events are stored as device less id codes.
 		std::set<Input> blockedInputs;
 
+		//I would like some extra settings for this. If you have a device that has -1 it means that device is entirely disabled.
+		// if you have one that has a none device and is fully negative that means ALL controls are prevented from passing through.
+		// Selected will do this sometimes, fully preventing passing through to completely reinvent the bindings.
 
 		bool CanInputPass(RE::InputEvent* event) const override
 		{
@@ -197,15 +201,42 @@ namespace DIMS
 		}
 	};
 
-	struct ModeMatrix : public LayerMatrix
+
+
+
+	struct InputMode : public LayerMatrix
 	{
-		MatrixType GetMatrixType() const override { return MatrixType::Mode; }
+
+		struct Instance : public LayerMatrix::Instance
+		{
+		public:
+			CommandEntryPtr source = nullptr;
+
+			bool isStrong = true;
+
+			InputMode* GetBaseObject()
+			{
+				return static_cast<InputMode*>(__super::GetBaseObject());
+			}
+			const InputMode* GetBaseObject() const
+			{
+				return static_cast<const InputMode*>(__super::GetBaseObject());
+			}
+
+		};
+
+		InputMode()
+		{
+			type = MatrixType::Mode;
+		}
+
+		Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+		{
+			return LoadInstance<Instance>(context, create_if_required);
+		}
+
 	};
 
-	struct StateController
-	{
-		
-	};
 
 
 	enum struct CompareType : uint8_t
@@ -314,35 +345,155 @@ namespace DIMS
 	};
 	
 
+	struct CustomMapping
+	{
+		struct Handle
+		{
+			uint32_t index;
+
+			CustomMapping* operator->() const
+			{
+				if (index != -1)
+					return std::addressof(mappingList[index]);
+
+				return nullptr;
+			}
+
+
+			Handle(uint32_t i) : index { i } {}
+		};
+
+
+		static Handle Create(std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
+		{
+			
+			Handle handle = (uint32_t)mappingList.size();
+
+			CustomMapping& result = mappingList.emplace_back();
+
+
+			result.fileHash = std::hash<std::string_view>{}(a_filename);
+
+			result._category = Hash<HashFlags::Insensitive>(a_category);
+
+			auto& next = nextIndexMap[result.fileHash];
+
+			result._id = next = a_index.value_or(next++);
+
+			return handle;
+		}
+
+
+		inline static std::vector<CustomMapping> mappingList;
+		inline static std::unordered_map<uint64_t, uint8_t> nextIndexMap;
+
+
+
+
+		uint64_t file() const
+		{
+
+			if (!this)
+				return 0;
+
+			return fileHash;
+		}
+
+		uint32_t id() const
+		{
+
+			if (!this)
+				return 0;
+
+			return fileHash;
+		}
+		
+		uint32_t category() const
+		{
+			if (!this)
+				return 0;
+
+			return _category;
+		}
+
+		
+
+		//I have no idea if I want to do this, but it'll be what I use if I ever make an in game editor. Probably not though.
+		//inline static std::unordered_map<uint32_t, CustomMapping> tempMap;
+
+		uint64_t fileHash;	//The hash of the file name this spawned from. Can be manually set to restore an existing config
+		
+		uint32_t _id;			//ID given or assigned within the file. Can be manually set to restore an existing config
+
+		//This can be an editor data only object.
+		//uint16_t priority;	//Determines the order of that the inputs are loaded in, also determining the order of secondary controls
+		
+		uint32_t _category;	//To be a string hash that determines what category it should belong to
+
+		//If the tag of customevent is -1, this means that it has no custom mapping data.
+		// Custom Mapping data is required if the control is either A
+
+
+
+	};
+
 	
 
 	struct CustomEvent : public RE::UserEventMapping
 	{
-		uint32_t& tag() { return pad14; }
-		const uint32_t& tag() const { return pad14; }
+	private:
+		uint32_t& tag() const { return const_cast<uint32_t&>(pad14); }
+	public:
+		CustomMapping::Handle& handle()
+		{ 
+			if (!eventID.empty() && IsCustomEvent() == false)
+				tag() = -1;
+
+			return reinterpret_cast<CustomMapping::Handle&>(pad14); 
+		}
+		const CustomMapping::Handle& handle() const 
+		{ 
+			//With this, no need to check for the handle, non-customs won't have handle at all.
+			if (!eventID.empty() && IsCustomEvent() == false)
+				tag() = -1;
+			
+			return reinterpret_cast<const CustomMapping::Handle&>(pad14);
+		}
 
 
-		bool IsSignature(uint64_t hash, uint8_t index)
+
+		bool IsSignature(uint64_t hash, uint8_t index) const
 		{
-			return tag() == index;
+			return handle()->file() == hash && handle()->id() == index;
 		}
 
 		bool CanRemapTo(uint64_t hash, uint8_t index) const
 		{
-			return IsCustomEvent() && remappable && hash == 0 && tag() == index;
+			return IsCustomEvent() && remappable && IsSignature(hash, index);
 		}
 
 
-		uint8_t file_index() const
-		{
-			return tag();
-		}
 
 		bool IsCustomEvent() const
 		{
 			return indexInContext == -1;
 		}
 
+
+		static CustomEvent* CtorImpl2(CustomEvent* a_this)
+		{
+			logger::info("Hit");
+			//Have to brought force this bit because it's uninitialized.
+			reinterpret_cast<void*&>(a_this->eventID) = nullptr;
+			a_this->inputKey = -1;
+			a_this->modifier = -1;
+			a_this->indexInContext = 0;
+			a_this->remappable = false;
+			a_this->linked = false;
+			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
+			a_this->tag() = -1;
+			return a_this;
+		}
 
 
 		static CustomEvent* CtorImpl(CustomEvent* a_this)
@@ -356,7 +507,7 @@ namespace DIMS
 			a_this->remappable = false;
 			a_this->linked = false;
 			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
-			a_this->tag() = 0;
+			a_this->tag() = -1;
 			return a_this;
 		}
 
@@ -369,7 +520,18 @@ namespace DIMS
 		CustomEvent()
 		{
 			Ctor();
+			indexInContext = -1;
+			tag() = -1;
 		}
+
+		CustomEvent(std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
+		{
+			Ctor();
+			indexInContext = -1;
+			modifier = 0;
+			handle() = CustomMapping::Create(a_filename, a_category, a_index);
+		}
+
 	};
 	static_assert(sizeof(CustomEvent) == sizeof(RE::UserEventMapping));
 	//TODO: Static assert the offsets too. That's important.
@@ -381,12 +543,10 @@ namespace DIMS
 	inline auto& operator~(const RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<const RE::BSTArray<CustomEvent>&>(a_this); }
 
 
-	inline auto custom(RE::UserEventMapping* a_this) { return reinterpret_cast<CustomEvent*>(a_this); }
-	inline auto custom(const RE::UserEventMapping* a_this) { return reinterpret_cast<const CustomEvent*>(a_this); }
-
-
 
 	constexpr uint8_t controlMapVersion = 1;
+	//I'll be storing this here because it's config independent. If I store it in data VFS's are going to snatch it up.
+	constexpr const char* controlMapPath = "ControlMap_Dynamic.txt";
 
 
 	//enum struct Refres
@@ -397,12 +557,270 @@ namespace DIMS
 
 	struct InputState : public LayerMatrix
 	{
-		struct Entry
+		struct Instance : public LayerMatrix::Instance
 		{
-			//Entry state gets moved here, each input state basically has a map
+		public:
+
+
+			InputState* GetBaseObject()
+			{
+				return static_cast<InputState*>(__super::GetBaseObject());
+			}
+			const InputState* GetBaseObject() const
+			{
+				return static_cast<const InputState*>(__super::GetBaseObject());
+			}
+
+
+			auto priority() const
+			{
+				return  GetBaseObject()->_priority;
+			}
+
+
+			auto level() const
+			{
+				return GetBaseObject()->level;
+			}
+
+
+			bool IsInConflict(Instance* other) const
+			{
+				return GetBaseObject()->IsInConflict(other->GetBaseObject());
+			}
+
+
+			void SetInputEnabled(Input input, bool value)
+			{
+
+				auto it = storage.find(input.hash());
+
+				auto end = storage.end();
+
+				if (it == end) {
+					return;
+				}
+
+				for (auto& entry : it->second)
+				{
+					entry->SetEnabled(value);
+				}
+
+				for (auto parent : GetBaseObject()->parents)
+				{
+					parent->ObtainContextInstance(context)->SetInputEnabled(input, value);
+				}
+			}
+
+			//This is called on all activeStates at the end of a successful update.
+			void SetAllInputsEnabled(bool value = true)
+			{
+				for (auto& [key, lists] : storage)
+				{
+					for (auto& entry : lists)
+					{
+						entry->SetEnabled(value);
+					}
+
+				}
+
+				for (auto parent : GetBaseObject()->parents)
+				{
+					parent->ObtainContextInstance(context)->SetAllInputsEnabled(value);
+				}
+			}
+
+			bool CanInputPass(RE::InputEvent* event) const
+			{
+				return GetBaseObject()->CanInputPass(event);
+			}
+
+			bool DerivesFrom(Instance* other)
+			{
+				if (!other)
+					return false;
+
+				return GetBaseObject()->DerivesFrom(other->GetBaseObject());
+
+			}
+
+
+			std::vector<Instance*> GetViableStates(RefreshCode code, double data1, double data2, std::span<Instance*>& limit, InputState*& winner, bool& change, bool inner_change = false)
+			{
+				//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
+				// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
+
+
+				//It should be noted that having activated this frame is not grounds for 
+
+				RefreshCode k_fakeUpdateCode = RefreshCode::Update;
+				RefreshCode k_fakeExpectedCode = RefreshCode::Update;
+
+				Instance* self = nullptr;
+
+				auto end = limit.end();
+				bool in_previous = std::find(limit.begin(), end, this) != end;
+
+				if (!inner_change && GetBaseObject()->CheckEvent(code, data1, data2) == false) {
+					//Given update either isn't within here or doesn't match parameters.
+
+					//If it's not within the expected update but it's currently active, it will just put it in there.
+					// I may actually just make a setting for this specifically to make it faster. For now, this will work.
+
+
+					if (in_previous) {
+						self = this;
+					}
+					else
+						return {};
+				}
+				//The rule is that the states in question must remain above
+				else {
+
+					//What this actually should want to do is check the parents before checking itself so if it fails its children it doesn't take place.
+					// But that won't be needed for a while even if this isn't a very smart way of doing this.
+					if (GetBaseObject()->tmpCheckParentCondition() == true && GetBaseObject()->tmpCheckCondition() == true) {
+						self = this;
+					}
+
+
+					if (self && !in_previous || !self && in_previous) {
+						inner_change = change = true;
+
+					}
+					else {
+						inner_change = false;
+					}
+				}
+
+
+
+				if (self) {
+
+					//Here a question about whether this should be viable based on the winner is cast forth.
+
+					if (!winner) {
+						winner = GetBaseObject();
+						return { self };
+					}
+					else {
+						bool collapse = GetBaseObject()->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(GetBaseObject()));
+
+						if (collapse)
+							return {};
+					}
+				}
+
+
+
+				//if (in_previous) {
+				//	return {};
+				//}
+
+
+
+				std::vector<Instance*> result;
+
+
+				for (auto parent : GetBaseObject()->parents)
+				{
+					auto add = parent->ObtainContextInstance(context)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
+
+					if (add.size() != 0)
+						result.append_range(add);
+				}
+
+				return result;
+			}
+
+			void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& winner)
+			{
+				auto ctrl_it = storage.find(control.hash());
+				auto input_it = storage.find(input.hash());
+
+				auto end = storage.end();
+
+
+				bool add = true;
+
+				bool c_find = ctrl_it != end;
+				bool i_find = input_it != end;
+
+				auto settings = GetBaseObject();
+
+				if  constexpr (0)
+				{
+					//I'm doing this real crude like for the visuals
+					if (c_find || i_find)
+					{
+						//Do this bit first if you can, it'd be nice to have the searching not done if it's not viable.
+						if (!winner) {
+							//Winner only matters here if it does either of these things
+							if (settings->ShouldSmother() || settings->ShouldSmash())
+								winner = settings;
+						}
+						else
+						{
+							if (settings->ShouldCollapse() || winner->ShouldSmash())
+							{
+								return;
+							}
+						}
+
+
+						if (c_find) {
+							list.push_back(std::ref(ctrl_it->second));
+							SetInputEnabled(control, true);
+						}
+
+						if (i_find) {
+							list.push_back(std::ref(input_it->second));
+							SetInputEnabled(input, true);
+						}
+					}
+				}
+				else
+				{
+					if (ctrl_it != end) {
+						list.push_back(std::ref(ctrl_it->second));
+						SetInputEnabled(control, true);
+					}
+
+					if (input_it != end) {
+						list.push_back(std::ref(input_it->second));
+						SetInputEnabled(input, true);
+					}
+				}
+
+
+				//Basically if it's already taken, take it back
+				InputState* _winner = winner;
+
+				for (auto& parent : settings->parents)
+				{
+					parent->ObtainContextInstance(context)->LoadVisitorList(list, input, control, _winner);
+				}
+
+
+			}
 		};
 
+
+		InputState()
+		{
+			type = MatrixType::State;
+		}
+
+		Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+		{
+			return LoadInstance<Instance>(context, create_if_required);
+		}
+
+
+
+
 		static constexpr RefreshEvent genericUpdateEvent{ RefreshCode::Update, 0.0, CompareType::kGreaterOrEqual };
+
 
 
 		//This is a matrix setting that creates the setting
@@ -411,14 +829,14 @@ namespace DIMS
 		StateLevel level = StateLevel::Smother;
 		int16_t _priority = 1;
 		tmp_Condition* condition = nullptr;
-		
+
 		std::string_view debugName;
 
 		std::set<Input> conflictList;
 
 		//If refresh events exist, then the default update is used.
 		std::set<RefreshEvent> refreshEvents;
-		
+
 
 		bool CheckEvent(RefreshCode a_code, double data1, double data2)
 		{
@@ -457,14 +875,14 @@ namespace DIMS
 
 		MatrixType GetMatrixType() const override { return MatrixType::State; }
 
-		std::strong_ordering CompareOrder(const InputMatrix* o) const override
+		std::strong_ordering CompareOrder(const Matrix* o) const override
 		{
 			auto other = dynamic_cast<const InputState*>(o);
-			
+
 			if (DerivesFrom(other) == true) {
 				return std::strong_ordering::greater;
 			}
-			
+
 			if (other->DerivesFrom(this) == true) {
 				return std::strong_ordering::less;
 			}
@@ -493,7 +911,7 @@ namespace DIMS
 			case StateLevel::Smash:
 			case StateLevel::Clobber:
 				return true;
-			
+
 			default:
 				return false;
 			}
@@ -540,7 +958,7 @@ namespace DIMS
 
 		void tmpBuildConflictList()
 		{
-
+			conflictList.clear();
 
 			for (auto& command : commands)
 			{
@@ -561,7 +979,7 @@ namespace DIMS
 		{
 			auto control_map = RE::ControlMap::GetSingleton();
 
-			
+
 			for (auto input : conflictList) {
 				if (other->HasInput(input) == true)
 					return true;
@@ -579,8 +997,8 @@ namespace DIMS
 					//saving this just in case
 					if (input.IsUserEvent() == true)
 						continue;
-					
-					
+
+
 					if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
 						//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
 						Input ctrl = Input::CreateUserEvent(name);
@@ -691,7 +1109,7 @@ namespace DIMS
 		{
 			for (auto parent : parents)
 			{
-				if ( !parent->tmpCheckCondition() || !parent->tmpCheckParentCondition() ){
+				if (!parent->tmpCheckCondition() || !parent->tmpCheckParentCondition()) {
 					return false;
 				}
 			}
@@ -709,8 +1127,18 @@ namespace DIMS
 
 	struct StateManager
 	{
+		//TODO: StateManager doesn't quite respect the idea of different contexts. this needs to be explored at some point.
+		// Perhaps I can make it so access to a state manager is tied to a context. Some states might be able to exist in
+		// multiple places, but they'd have to be copies.
+
+
+
 		//Manager doesn't quite represent what this is. A "default" state basically controls this.
 		// So basically one for menu, one for gameplay, maybe other states. The gist is this is a maker.
+
+
+
+
 
 
 
@@ -745,383 +1173,21 @@ namespace DIMS
 		StateMap CreateMap();
 	};
 
-	struct EntryState;
-
-	struct StateEntry//Won't be using this.
-	{
-		EntryState* first = nullptr;
-
-		size_t second = -1;
-
-		constexpr auto operator<=>(const StateEntry& other) const
-		{
-			return first <=> other.first;
-		}
-
-		StateEntry(EntryState* state, size_t n = -1) :first{ state }, second{ n }
-		{
-
-		}
-	};
-
-
-
-	struct EntryState : public IMatrix//There's no state entry because this is basically always active in this state
-	{
-		enum EnableState
-		{
-			kUndefined,
-			kEnabled,
-			kDisabled,
-		};
-
-		InputState* settings = nullptr;
-
-		//This carries the command map, and other ActiveState parents.
-
-		//This might be ignorable
-		std::vector<std::shared_ptr<EntryState>> parents;
-
-		CommandMap storage;
-
-		EnableState _enabled = kUndefined;
-		uint32_t activeTimestamp = -1;
-
-		auto priority() const
-		{
-			return settings->_priority;
-		}
-
-
-		auto level() const
-		{
-			return settings->level;
-		}
-
-
-		bool IsInConflict(EntryState* other) const
-		{
-			return settings->IsInConflict(other->settings);
-		}
-
-		void SetInputEnabled(Input input, bool value)
-		{
-
-			auto it = storage.find(input.hash());
-
-			auto end = storage.end();
-
-			if (it == end) {
-				return;
-			}
-
-			for (auto& entry : it->second)
-			{
-				entry->SetEnabled(value);
-			}
-
-
-			for (auto parent : parents)
-			{
-				parent->SetInputEnabled(input, value);
-			}
-		}
-
-		//This is called on all activeStates at the end of a successful update.
-		void SetAllInputsEnabled(bool value = true)
-		{
-			for (auto& [key, lists] : storage)
-			{
-				for (auto& entry : lists)
-				{
-					entry->SetEnabled(value);
-				}
-
-			}
-
-			for (auto parent : parents)
-			{
-				parent->SetAllInputsEnabled(value);
-			}
-		}
-
-
-		void Activate()
-		{
-			activeTimestamp = RE::GetDurationOfApplicationRunTime();
-		}
-
-		void Deactivate()
-		{
-			activeTimestamp = -1;
-		}
-
-		uint32_t GetActivateTime() const
-		{
-			return activeTimestamp;
-		}
-
-		bool IsActive() const
-		{
-			return GetActivateTime();
-		}
-
-		bool HasActivatedThisFrame() const
-		{
-			return GetActivateTime() == RE::GetDurationOfApplicationRunTime();
-		}
-
-		protected: 
-
-		void SetEnabledImpl(EnableState state)
-		{
-			_enabled = state;
-		}
-
-		public:
-		void SetEnabled(bool value)
-		{
-			return SetEnabledImpl(value ? kEnabled : kDisabled);
-		}
-
-		void ClearEnabled()
-		{
-			return SetEnabledImpl(kUndefined);
-		}
-
-		void Disable()
-		{
-			return SetEnabled(false);
-		}
-
-		void Enable()
-		{
-			return SetEnabled(true);
-		}
-
-		bool IsEnabled() const
-		{
-			return _enabled == kEnabled;
-		}
-
-		bool IsDisabled() const
-		{
-			return _enabled == kDisabled;
-		}
-
-		bool CanInputPass(RE::InputEvent* event) const override
-		{
-			return settings->CanInputPass(event);
-		}
-
-		bool DerivesFrom(EntryState* other)
-		{
-			if (!other)
-				return false;
-
-			return settings->DerivesFrom(other->settings);
-
-		}
-
-
-		std::vector<EntryState*> GetViableStates(RefreshCode code, double data1, double data2, std::span<EntryState*>& limit, InputState*& winner, bool& change, bool inner_change = false)
-		{
-			//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
-			// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
-			
-
-			//It should be noted that having activated this frame is not grounds for 
+	struct StateMap//This carries the unique pointers of active states
 		
-			RefreshCode k_fakeUpdateCode = RefreshCode::Update;
-			RefreshCode k_fakeExpectedCode = RefreshCode::Update;
-			
-			EntryState* self = nullptr;
-
-			auto end = limit.end();
-			bool in_previous = std::find(limit.begin(), end, this) != end;
-
-			if (!inner_change && settings->CheckEvent(code, data1, data2) == false) {
-				//Given update either isn't within here or doesn't match parameters.
-				
-				//If it's not within the expected update but it's currently active, it will just put it in there.
-				// I may actually just make a setting for this specifically to make it faster. For now, this will work.
-				
-
-				if (in_previous) {
-					self = this;
-				}
-				else
-					return {};
-			}
-			//The rule is that the states in question must remain above
-			else {
-
-				//What this actually should want to do is check the parents before checking itself so if it fails its children it doesn't take place.
-				// But that won't be needed for a while even if this isn't a very smart way of doing this.
-				if (settings->tmpCheckParentCondition() == true  && settings->tmpCheckCondition() == true) {
-					self = this;
-				}
-
-
-				if (self && !in_previous || !self && in_previous) {
-					inner_change = change = true;
-					
-				}
-				else {
-					inner_change = false;
-				}
-			}
-
-
-
-			if (self) {
-
-				//Here a question about whether this should be viable based on the winner is cast forth.
-
-				if (!winner) {
-					winner = settings;
-					return { self };
-				}
-				else {
-					bool collapse = settings->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(settings));
-				
-					if (collapse)
-						return {};
-				}
-			}
-			
-
-
-			//if (in_previous) {
-			//	return {};
-			//}
-		
-
-
-			std::vector<EntryState*> result;
-
-
-			for (auto parent : parents)
-			{
-				auto add = parent->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
-
-				if (add.size() != 0)
-					result.append_range(add);
-			}
-
-			return result;
-		}
-
-		bool CheckConditions(std::span<StateEntry>& end)
-		{
-			
-		}
-
-		void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& winner)
-		{
-			if (IsDisabled() == true) {
-				return;
-			}
-
-			//else if (winner->level() == ??? && winner->IsInConflict(this) == true)
-			//{
-			//}
-
-			auto ctrl_it = storage.find(control.hash());
-			auto input_it = storage.find(input.hash());
-
-			auto end = storage.end();
-			
-
-			bool add = true;
-
-			bool c_find = ctrl_it != end;
-			bool i_find = input_it != end;
-
-			if  constexpr (0)
-			{
-				//I'm doing this real crude like for the visuals
-				if (c_find || i_find)
-				{
-					//Do this bit first if you can, it'd be nice to have the searching not done if it's not viable.
-					if (!winner) {
-						//Winner only matters here if it does either of these things
-						if (settings->ShouldSmother() || settings->ShouldSmash())
-							winner = settings;
-					}
-					else
-					{
-						if (settings->ShouldCollapse() || winner->ShouldSmash())
-						{
-							return;
-						}
-					}
-
-
-					if (c_find) {
-						list.push_back(std::ref(ctrl_it->second));
-						SetInputEnabled(control, true);
-					}
-
-					if (i_find) {
-						list.push_back(std::ref(input_it->second));
-						SetInputEnabled(input, true);
-					}
-				}
-			}
-			else
-			{
-				if (ctrl_it != end) {
-					list.push_back(std::ref(ctrl_it->second));
-					SetInputEnabled(control, true);
-				}
-
-				if (input_it != end) {
-					list.push_back(std::ref(input_it->second));
-					SetInputEnabled(input, true);
-				}
-			}
-			
-			
-			//Basically if it's already taken, take it back
-			InputState* _winner = winner;
-
-			for (auto& parent : parents)
-			{
-				parent->LoadVisitorList(list, input, control, _winner);
-			}
-
-			
-		}
-
-		EntryState(InputState* state) : settings{ state }
-		{
-			storage = settings->CreateCommandMap();
-
-			//Disable();
-		}
-	};
-
-	//Probably just going to use these names as members.
-	//using StateHeader = std::unique_ptr<ActiveState>;
-	//using ShareState = std::shared_ptr<ActiveState>;
-
-
-	struct StateMap
 	{
-		//This carries the unique pointers of active states
 		
 		//These are the childless active states, who collectively maintain the existence
-		std::vector<std::unique_ptr<EntryState>> headers;
+		//std::vector<std::unique_ptr<EntryState>> headers;
 		
 		//I'm unsure if this should be shared or not. The unique pointers existing makes sure these will not die, so I guess
 		// this is good.
 
-
+		StateManager* manager = nullptr;
 		
 
 		//The active state notes which entry it comes from
-		std::vector<EntryState*> activeStates;
+		std::vector<InputState::Instance*> activeStates;
 
 
 		uint32_t updateTimestamp = 0;
@@ -1132,14 +1198,16 @@ namespace DIMS
 
 		void Update(RefreshCode code, RefreshData data1, RefreshData data2 = 0)
 		{
-			std::span<EntryState*> limits{ activeStates };
+			constexpr auto context = RE::InputContextID::kGameplay;
+
+			std::span<InputState::Instance*> limits{ activeStates };
 
 			//This should only be made once we're sure that there's actually even gonna be an update.
 			// To this, each time the real update is called, it will be associated with an update event. If one of those update event's match the code given,
 			// it will attempt to update.
 
 			//Correction, if it's within the sp
-			std::vector<EntryState*> updateList;
+			std::vector<InputState::Instance*> updateList;
 
 
 			InputState* winner = nullptr;
@@ -1147,24 +1215,24 @@ namespace DIMS
 			bool change = false;
 
 			//I think while updating, if the headers don't say they want to update, we just take a span of their data, and add it into the span.
-			for (int i = 0; i < headers.size(); i++)
+			for (int i = 0; i < manager->headers.size(); i++)
 			{
-				auto& header = headers[i];
+				auto header = manager->headers[i];
 				//How do we handle updates?
  				//First, we get the 
 				//if ()
-				updateList.append_range(header->GetViableStates(code, data1.value, data2.value, limits, winner, change));
+				updateList.append_range(header->ObtainContextInstance(context)->GetViableStates(code, data1.value, data2.value, limits, winner, change));
 			}
 
 			//if the event has done nothing, forgo all this.
 			if (!change)
 				return;
 
-			std::unordered_set<EntryState*> seen;
+			std::unordered_set<InputState::Instance*> seen;
 
 			auto it = std::remove_if(
 				updateList.begin(), updateList.end(),
-				[&seen](EntryState* value) {
+				[&seen](InputState::Instance* value) {
 					return !seen.emplace(value).second;
 				});
 
@@ -1186,8 +1254,10 @@ namespace DIMS
 
 		void CheckUpdate()
 		{
-			if (SecondsSinceLastUpdate(updateTimestamp) >= Settings::updateTime) {
-				Update(RefreshCode::Update, updateTimestamp);//We are updating under the event of OnTick.
+			bool absolute = !updateTimestamp && activeStates.empty();
+
+			if (absolute || SecondsSinceLastUpdate(updateTimestamp) >= Settings::updateTime) {
+				Update(absolute ? RefreshCode::Absolute : RefreshCode::Update, updateTimestamp);//We are updating under the event of OnTick.
 				updateTimestamp = RE::GetDurationOfApplicationRunTime();
 				
 			}
@@ -1220,43 +1290,12 @@ namespace DIMS
 	};
 
 
-	inline EntryState* MakeActiveState(InputState* state, std::unordered_map<InputState*, EntryState*>& manifest)
-	{
-		auto& loc = manifest[state];
-
-		if (!loc)
-		{
-			loc = new EntryState(state);//Handle command creation here.
-			loc->settings = state;
-
-
-			for (auto parent : state->parents)
-			{
-				auto par = MakeActiveState(parent, manifest);
-
-				loc->parents.push_back(std::shared_ptr<EntryState>(par));
-			}
-		}
-
-		return std::move(loc);
-	}
-
-	inline std::unique_ptr<EntryState> MakeUniqueActiveState(InputState* state, std::unordered_map<InputState*, EntryState*>& manifest)
-	{
-		return std::unique_ptr<EntryState>(MakeActiveState(state, manifest));
-	}
-
 	inline StateMap StateManager::CreateMap()
 	{
 		StateMap result;
-
-		std::unordered_map<InputState*, EntryState*> manifest;
-
+		result.manager = this;
 		
-		for (auto header : headers)
-		{
-			result.headers.push_back(MakeUniqueActiveState(header, manifest));
-		}
+		//Here you'd pull the proper manager from a context list or something.
 
 		return result;
 	}
@@ -1294,51 +1333,6 @@ namespace DIMS
 	};
 
 	
-	struct ModeMap : public MatrixMap
-	{
-		CommandEntryPtr progenitor;
-
-		bool isStrong = true;	//If the mode isn't strong, all actions it takes will also be tenative. This will basically set up the active
-								// input to have a waiter built into it. 
-
-		//This isn't quite right. If the mode is weak, then it should prefer other actions first. I guess this is the same thing as a waiter huh?
-
-		//SO maybe something like this. We forcibly put a waiter on the command, then we check if there were any other combo actions
-		
-
-		//Actually global waiter seems about right. Due to the whole multiple press thing. We could be using more than 3 buttons.
-
-
-		//Now that I think about it, if it was ever to truly be interupted
-
-
-		/*
-		I think the initial wait is the easy part. The hard part is what comes next. Say I need to crumple all my stuff down. What do I do?
-		Unsure.
-
-		For failure I can have some play with the sign bit, to denote that external failure has happened. I COULD do something similar for inputs,
-		 but inputs are bitfielded. So they don't have much room to play with. it needs it's sign bit
-
-		Actually, never mind, input is free to have signed values mean something, inputs can never go past 10 so this is a complete win.
-
-		So if inputs has the sign bit it means it has an external waiter (for this I'd say only the owner of the commandEntry can actually declare it a waiter).
-
-		Successes seperately will be completion flag, denoting something is done and doesn't need to be run anymore.
-
-		//*/
-
-
-		//TODO: This needs to refine itself, also needs to actually create it's command map.
-		ModeMap(LayerMatrix* mode, CommandEntryPtr& prog, bool strong) : isStrong{ strong }
-		{
-			matrix = mode; 
-			progenitor = prog;
-
-			commands = matrix->CreateCommandMap();
-		}
-	};
-
-
 	struct FakeThumbstick
 	{
 		static constexpr auto VTABLE = RE::VTABLE_ThumbstickEvent;
@@ -2232,28 +2226,28 @@ namespace DIMS
 		//std::set<ActiveCommandPtr> activeCommands;
 
 
-		std::vector<std::unique_ptr<ModeMap>> modeMaps;//The last mode is most important.
+		std::vector<InputMode::Instance*> modeMaps;//The last mode is most important.
 
 		RE::InputContextID context;
 
 
-		void EmplaceMode(LayerMatrix* mode, CommandEntryPtr& command, bool strengthen) 
+		void EmplaceMode(InputMode* mode, CommandEntryPtr& command, bool strengthen) 
 		{
 			auto it = modeMaps.begin();
 			auto end = modeMaps.end();
 
-			it = std::find_if(it, end, [&](std::unique_ptr<ModeMap>& i) {return i->progenitor == command && i->matrix == mode; });
+			it = std::find_if(it, end, [&](InputMode::Instance* i) {return i->source == command && i->GetBaseObject() == mode; });
 
 			if (it == end) {
-				auto& config = modeMaps.emplace_back(std::make_unique<ModeMap>(mode, command, strengthen));
-
-
+				auto& config = modeMaps.emplace_back(mode->ObtainContextInstance(k_gameplayContext));
+				config->source = command;
+				config->isStrong = strengthen;
 
 				return;
 			}
 
 			if (strengthen)//This needs to do other things than just declare strength BTW, but this works for now.
-				it->get()->isStrong = true;
+				(*it)->isStrong = true;
 
 		}
 
@@ -2262,16 +2256,16 @@ namespace DIMS
 			auto it = modeMaps.begin();
 			auto end = modeMaps.end();
 
-			it = std::find_if(it, end, [&](std::unique_ptr<ModeMap>& i) {return i->progenitor == command && i->matrix == mode; });
+			it = std::find_if(it, end, [&](InputMode::Instance* i) {return i->source == command && i->GetBaseObject() == mode; });
 
 			if (it != end) {
 				modeMaps.erase(it);
 			}
 		}
 
-		ModeMap* GetCurrentMode()
+		InputMode::Instance* GetCurrentMode()
 		{
-			return modeMaps.size() ? modeMaps.back().get() : nullptr;
+			return modeMaps.size() ? modeMaps.back() : nullptr;
 		}
 
 
@@ -2284,7 +2278,7 @@ namespace DIMS
 
 			//std::vector<CommandEntryPtr>& 
 			CommandMap* map;
-			InputMatrix* matrix = nullptr;
+			Matrix* matrix = nullptr;
 
 			switch (type)
 			{
@@ -2297,13 +2291,13 @@ namespace DIMS
 				return stateMap.PrepVisitorList(list, event, input, control);
 
 			case MatrixType::Mode: {
-				ModeMap* mode = GetCurrentMode();
+				InputMode::Instance* mode = GetCurrentMode();
 				if (!mode) {
 					return true;
 				}
 
-				map = &mode->commands;
-				matrix = mode->matrix;
+				map = &mode->storage;
+				matrix = mode->GetBaseObject();
 
 				break;
 			}
@@ -2751,7 +2745,7 @@ namespace DIMS
 						entry->IsActive();
 					}
 
-					if (!entry->IsActive() && entry->IsEnabled() == true){
+					if (!entry->IsActive() && entry->IsEnabled() && entry->CanHandleEvent(event) == true) {
 						active_input->MakeCommand(entry, stage);
 					}
 
@@ -3552,10 +3546,7 @@ namespace DIMS
 					return result;
 				}
 
-				bool CheckConditions(std::span<StateEntry>& end)
-				{
-
-				}
+				//bool CheckConditions(std::span<StateEntry>& end){}
 
 				void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& winner)
 				{

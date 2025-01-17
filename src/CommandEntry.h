@@ -443,10 +443,10 @@ namespace DIMS
 
 
 
-		//bool CanHandleEvent(RE::InputEvent* event, bool push = true) const
-		//{
-		//	return trigger->CanHandleEvent(event, index());
-		//}
+		bool CanHandleEvent(RE::InputEvent* event) const
+		{
+			return trigger->CanHandleEvent(event);
+		}
 
 
 		//Execute returns if it actually executed anything or if the event was stifled

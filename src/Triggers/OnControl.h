@@ -21,6 +21,11 @@ namespace DIMS
 
 		//This is currently unused, so it should throw for now.
 
+		bool CanHandleEvent(RE::InputEvent* event, Argument* list) const override
+		{
+			return event->eventType == RE::INPUT_EVENT_TYPE::kButton;
+		}
+
 
 		Input GetInput(const Argument* args) const override;
 

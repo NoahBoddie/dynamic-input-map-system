@@ -2,6 +2,7 @@
 
 namespace DIMS
 {
+
 	//Move to RGL
 	//Returns the highest bit position of an enum or integer
 	template <typename T> requires(std::is_enum_v<T> || std::is_integral_v<T>)

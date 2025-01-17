@@ -15,5 +15,11 @@ namespace RE
 {
 	using UserEventFlag = UserEvents::USER_EVENT_FLAG;
 	using UserEventMapping = ControlMap::UserEventMapping;
-	using InputContextID = RE::UserEvents::INPUT_CONTEXT_ID;
+	using InputContextID = RE::UserEvents::INPUT_CONTEXT_IDS::INPUT_CONTEXT_ID;
+}
+
+namespace DIMS
+{
+	constexpr auto k_gameplayContext = RE::InputContextID::kGameplay;
+
 }

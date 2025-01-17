@@ -6,7 +6,7 @@ namespace DIMS
 {
 	bool InvokeMode::Execute(EventData data, EventFlag& flags, const Argument* list) const
 	{
-		auto mode = list[MODE_PTR].As<LayerMatrix*>();
+		auto mode = list[MODE_PTR].As<InputMode*>();
 
 		bool strong = true;
 

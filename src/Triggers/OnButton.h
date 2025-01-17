@@ -26,6 +26,10 @@ namespace DIMS
 
 		Input GetInput(const Argument* list) const override;
 
+		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const
+		{
+			return event->eventType == RE::INPUT_EVENT_TYPE::kButton;
+		}
 
 		bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override
 		{
