@@ -3,6 +3,9 @@
 namespace DIMS
 {
 
+	constexpr RE::INPUT_EVENT_TYPE virtualEventType = (RE::INPUT_EVENT_TYPE)-1;
+
+
 	//Move to RGL
 	//Returns the highest bit position of an enum or integer
 	template <typename T> requires(std::is_enum_v<T> || std::is_integral_v<T>)
@@ -62,7 +65,9 @@ namespace DIMS
 	{
 		OnButton,
 		OnControl,
-
+		OnMouseMove,
+		OnThumbstick,
+		OnAxis,
 		Total,
 		None = TriggerType::Total,
 	};

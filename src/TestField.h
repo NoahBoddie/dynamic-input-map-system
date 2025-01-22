@@ -18,10 +18,14 @@
 
 #include "RE/Functions.h"
 #include "InputMatrix.h"
+
+#include "VirtualEvent.h"
+
 namespace DIMS
 {
 	//Lookup types
 	RE::PlayerControls;
+	RE::MenuControls;
 	RE::ButtonEvent;
 	RE::MouseMoveEvent;
 	RE::ThumbstickEvent;
@@ -31,10 +35,16 @@ namespace DIMS
 	RE::BSInputDeviceManager;
 	RE::CharEvent;
 	RE::FormID;
+	
 	//May make this an actual class with the ability to restore what's stored.
 
 
+	struct ControlInterface
+	{
+		//This is a control for menu controls and player controls (maybe other controls if there are some we find.
 
+		RE::BSTEventSink<RE::InputEvent*>* control{};
+	};
 
 
 
@@ -79,10 +89,10 @@ namespace DIMS
 	}
 
 
-	inline void ExecuteInput(InputInterface& event)
+	inline void ExecuteInput(RE::PlayerControls* controls, InputInterface& event)
 	{
-		RE::ExecuteInput(event.controls, event.event);
-		RE::UnkFunc01(event.controls);
+		RE::ExecuteInput(controls, event);
+		RE::UnkFunc01(controls);
 	}
 
 
@@ -366,6 +376,7 @@ namespace DIMS
 
 		static Handle Create(std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
 		{
+			//Please make this handle nothing if it doesn't warrant a handle
 			
 			Handle handle = (uint32_t)mappingList.size();
 
@@ -1408,7 +1419,26 @@ namespace DIMS
 			RE::ActorValue::kHealth, -param1.As<float>() * RE::GetSecondsSinceLastFrame());
 
 	}
-	
+
+
+
+
+	inline void ChangeMeSlowly(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	{
+		auto axis = data.event.GetAxis();
+
+		auto player = RE::PlayerCharacter::GetSingleton()->AsActorValueOwner();
+
+		player->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage,
+			RE::ActorValue::kStamina, 30 * axis.x * RE::GetSecondsSinceLastFrame());
+
+		player->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage,
+			RE::ActorValue::kMagicka, 30 * axis.y * RE::GetSecondsSinceLastFrame());
+
+		if (data.stage == EventStage::Finish)
+			RE::DebugMessageBox("Finished change");
+	}
+
 	inline void tmp_YELL_a_Mode(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
 	{
 		auto report = std::format("Mode Action: No. {} called. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
@@ -2511,7 +2541,26 @@ namespace DIMS
 			//trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnButton::BUTTON_ID] = Input{ RE::INPUT_DEVICE::kMouse, 1 };
 
 
-			std::vector<InputCommand*> something{ command1, command2, command3, command4, command5, command6 };
+
+			InputCommand* command7 = new InputCommand;
+
+
+			auto& action7 = command7->actions.emplace_back();
+			action7.type = ActionType::InvokeFunction;
+			auto& args7 = action7.args = std::make_unique<Argument[]>(3);
+			args7[InvokeFunction::FUNCTION_PTR] = ChangeMeSlowly;
+			args7[InvokeFunction::CUST_PARAM_1] = 10;
+
+			auto& trigger7 = command7->triggers.emplace_back();
+			trigger7.priority = 10;
+			//trigger7.type = TriggerType::OnMouseMove;
+			trigger7.type = TriggerType::OnAxis;
+			trigger7.conflict = ConflictLevel::Defending;
+			trigger7.stageFilter = EventStage::All;
+			//Needs no arguments, can really only activate here.
+			trigger7.args.emplace_back(std::make_unique<Argument[]>(1))[OnAxis::AXIS_ID] = "Move";
+
+			std::vector<InputCommand*> something{ command1, command2, command3, command4, command5, command6, command7 };
 
 
 
@@ -2616,10 +2665,8 @@ namespace DIMS
 			return delayList.size();
 		}
 
-		void CheckRelease(InputInterface& event, Input input)
+		void CheckRelease(RE::PlayerControls* controls, InputInterface& event, Input input)
 		{
-			std::unique_ptr<RE::InputEvent> dump;//This concept doesn't currently work, so I'm not really giving it any credit.
-
 			auto it = activeMap.begin();
 			auto end = activeMap.end();
 			it = activeMap.find(input);
@@ -2645,7 +2692,7 @@ namespace DIMS
 			//Incrementing and decrementing static time will allow this to not interfer with later entries.
 			CommandEntry::IncStaticTimestamp();
 
-			HandleEvent(event, dump);
+			HandleEvent(controls, event);
 
 			CommandEntry::DecStaticTimestamp();
 
@@ -2682,7 +2729,7 @@ namespace DIMS
 
 
 
-		bool HandleEvent(InputInterface event, std::unique_ptr<RE::InputEvent>& out)
+		bool HandleEvent(RE::PlayerControls* controls, InputInterface event)
 		{
 			//HandleEvent is basically the core driving function. It takes the player controls, and the given input event, as well as an
 			// InputEvent that is mutated to be refired.
@@ -2698,18 +2745,21 @@ namespace DIMS
 				return true;
 
 
-
-			bool allow_execute = true;
-
 			Input input = Input::CreateInput(event);
 			Input control = Input::CreateUserEvent(event);
 
+			//This isn't good to use, stop using it.
 			if (stage == EventStage::Start) {
-				CheckRelease(event, input);
+				CheckRelease(controls, event, input);
 			}
 
 
+
 			ActiveInputHandle active_input{ input, activeMap, event.GetEventValues() };
+
+
+			bool allow_execute = true;
+
 
 			
 
@@ -2835,7 +2885,7 @@ namespace DIMS
 							}
 
 
-							ExecuteInput(event);
+							ExecuteInput(controls, event);
 							
 							if (i == EventStage::Start) {
 								event.SetEventValues(backup.first, backup.second);
@@ -2856,6 +2906,88 @@ namespace DIMS
 			return execute_basic;
 		}
 
+		void ReleaseInput(RE::PlayerControls* a_controls, decltype(activeMap)::iterator& it)
+		{
+
+			VirtualEvent virtual_input;
+
+			//InputInterface event{ button.get(), a_controls };
+			InputInterface event{ &virtual_input };
+
+
+			bool purge = true;
+
+			auto dump = it->first;
+			auto& active = it->second;
+
+			EventFlag flags = EventFlag::None;
+
+			Input input = dump;
+
+			virtual_input.device = input.device;
+			virtual_input.heldDownSecs = active->data.SecondsHeld();
+
+			//button->device = input.device;
+			//button->heldDownSecs = active->data.SecondsHeld();
+
+			auto blocks = active->GetAllBlockCommands();
+
+			active->VisitActiveCommands([&](ActiveCommand& act)
+				{
+					if (act->GetTriggerFilter() & EventStage::Finish)
+					{
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
+						{
+							//if (act.stages & EventStage::Finish) {
+							if (act->HasVisitedStage(EventStage::Finish) == true) {
+								//This already processed a finish, no need.
+								return;
+							}
+
+
+							if (act.HasEarlyExit() == false) {
+								purge = false;
+								return;
+							}
+
+
+
+							//TODO: A genuine input check would be better here, because successes may not have registered yet.
+							//This seems to work, but have an issue where it only works if one is removed, then the other.
+
+							if (act->GetSuccess() > 1) {
+								//We'll want to let input go but not fire the action.
+								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+								return;
+							}
+							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+
+
+							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+							// computing needed to process things that will never come into success.
+
+							//if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) 
+							{
+								//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+
+								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
+
+								if (!act.entry->Execute(data, flags)) {
+									//This should do something, but currently I'm unsure what exactly.
+									//allow_execute
+								}
+							}
+						}
+					}
+				});
+
+
+			if (!purge || ClearActiveInput(it) == false) {
+				++it;
+			}
+		}
+
 		void HandleRelease(RE::PlayerControls* a_controls)
 		{
 			//Emplaces can be handled here. Please handle them.
@@ -2868,13 +3000,19 @@ namespace DIMS
 
 			std::unique_ptr<RE::ButtonEvent> button{ RE::ButtonEvent::Create(RE::INPUT_DEVICES::kNone, "", 0, 0, 0) };
 
-			InputInterface event{ button.get(), a_controls };
+			VirtualEvent virtual_input;
+
+			//InputInterface event{ button.get(), a_controls };
+			InputInterface event{ &virtual_input };
 
 
 			//PLEASE note, delay event refiring cannot happen here as proper, because emplace command is not happening. So, 
 			// I need to divide that function in such a way that I can use it's components.
 
 			for (auto it = activeMap.begin(); it != activeMap.end(); ) {
+				ReleaseInput(a_controls, it);
+				continue;
+				
 				bool purge = true;
 				
 				auto dump = it->first;
@@ -2884,8 +3022,11 @@ namespace DIMS
 
 				Input input = dump;
 
-				button->device = input.device;
-				button->heldDownSecs = active->data.SecondsHeld();
+				virtual_input.device = input.device;
+				virtual_input.heldDownSecs = active->data.SecondsHeld();
+
+				//button->device = input.device;
+				//button->heldDownSecs = active->data.SecondsHeld();
 
 				auto blocks = active->GetAllBlockCommands();
 
@@ -2966,6 +3107,69 @@ namespace DIMS
 			}
 			//*/
 		}
+
+
+
+		void QueueAxisRelease()
+		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
+
+			auto control_map = RE::ControlMap::GetSingleton();
+
+			//I just remembered, we don't actually care about the control, it's the input we're trying to clear.
+			constexpr Input axisInputs[]{
+				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
+				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
+				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
+			};
+			
+			for (auto input : axisInputs)
+			{
+				auto end = activeMap.end();
+				auto it = activeMap.find(input);
+
+				if (it == end)
+					continue;
+
+				auto& active = it->second;
+
+				active->VisitActiveCommands([&](ActiveCommand& act)
+					{
+						//This actually needs to work for the individual active entry.
+
+						//For each entry active, try to mark it for release.
+
+						//act->ResetExecute();
+						act.SetEarlyExit(true);
+					});
+			}
+		}
+
+		void ReleaseAxis(RE::PlayerControls* a_controls)
+		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
+
+			//TODO: Generalize this pls
+			constexpr Input axisInputs[]{
+				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
+				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
+				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
+			};
+
+			for (auto input : axisInputs)
+			{
+				auto end = activeMap.end();
+				auto it = activeMap.find(input);
+
+				if (it == end)
+					continue;
+
+				ReleaseInput(a_controls, it);
+			}
+		}
+
+
+		//The axis release version of Handle Release should have a "ReleaseInput" function, it should use the iterator to do it's business. Also being
+		// able to push it.
+
 	};
 	
 

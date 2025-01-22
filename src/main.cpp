@@ -105,6 +105,48 @@ void InitializeMessaging() {
 }
 
 
+struct MoveTracker
+{
+    inline static uint32_t timestampPrev = 0;
+    inline static uint32_t timestamp = 0;
+
+    //This system seems neat, but it only works ONCE, and second reads on the same frame
+    static bool WasMoveHandled()
+    {
+        auto this_frame = RE::GetDurationOfApplicationRunTime();
+
+        auto prev = timestampPrev;
+        if (RE::GetDurationOfApplicationRunTime() == timestamp)
+            timestampPrev = timestamp;
+        else
+            timestampPrev = 0;
+        //1 2
+        //This ensures previous only counts for the first time, but what about the second time.
+        return prev && prev != this_frame;
+
+    }
+
+    static void MoveHandled()
+    {
+        auto buff = RE::GetDurationOfApplicationRunTime();
+        if (buff != timestamp) {
+            timestampPrev = timestamp;
+            timestamp = buff;
+        }
+        
+    }
+
+    static void Clear()
+    {
+        //Ideally, this actually shouldn't be needed. I need to find a good place where a string is loaded. I think
+        // C11600+2DB is a good place. Or where the string is actually set. This is in main so it's really reliable if you can sink in.
+        // also, unlikely to be inlined.
+        timestamp = 0;
+        timestampPrev = 0;
+    }
+};
+
+
 struct InputHook
 {
     static void Install()
@@ -117,47 +159,176 @@ struct InputHook
         logger::debug("hook success.");
     }
 
-
-
     static void thunk(RE::PlayerControls* a_controls, RE::InputEvent* a_event)
     {
-        std::unique_ptr<RE::InputEvent> out;
+
+
         //RE::BSInputEventQueue;
 
-        if (DIMS::testController->HandleEvent({ a_event, a_controls }, out) == false)
+        if (a_event->AsIDEvent()) {
+            auto gamepad = RE::BSInputDeviceManager::GetSingleton()->GetGamepad();
+
+            if (auto the = skyrim_cast<RE::BSWin32GamepadDevice*>(gamepad); a_event->AsThumbstickEvent() && the)
+            {
+                auto other = a_event->AsThumbstickEvent();
+                logger::info("happen X:({} => {}), Y:({} => {})", the->previousRX, the->currentRX, the->previousRY, the->currentRY);
+                logger::info("other X:({}), Y:({})", other->xValue, other->yValue);
+
+           
+            }
+
+            auto the = RE::BSInputDeviceManager::GetSingleton()->GetMouse();
+
+            if (a_event->AsMouseMoveEvent() && the)
+            {
+                auto other = a_event->AsMouseMoveEvent();
+                logger::info("device X:({} => {}), Y:({} => {})", the->dInputPrevState.x, the->dInputNextState.x, the->dInputPrevState.y, the->dInputNextState.y);
+                logger::info("event X:({}), Y:({})", other->mouseInputX, other->mouseInputY);
+
+            }
+
+            //The smart thing here would just be to pull the gamepad every time I want to confirm this thing is legit unfortunately. Genuinely
+            // no other way. This too, is also pretty unreliable. All methods unfortunately are. If the event comes from the outside
+            // there is genuinely no way to tell if we've encountered the thing before (other than to manually handle while event's get sent out.
+            // The other problem is it's not really saying whether it should be moving or not. But there is a system for this I have to think.
+            //BECAUSE THE TWEEN MENU DIDN'T MOVE WHEN I ENTERED WITH THE THUMBSTICK ALREADY MOVING.
+            // This has to mean there's already some system in place to prevent this, thus I need to find it.
+            //*it does just seem to be the tween menu though.
+        }
+        
+
+        if (auto button = a_event->AsButtonEvent(); button && button->value)
         {
-            return;
+            switch (Hash(a_event->QUserEvent().c_str()))
+            {
+            case "Forward"_h:
+            case "Back"_h:
+            case "Strafe Right"_h:
+            case "Strafe Left"_h:
+                MoveTracker::MoveHandled();
+                break;
+            }
+        }
+        
+
+        auto a_continue = DIMS::testController->HandleEvent(a_controls, a_event);
+
+        //While none of the above is quite necessary
+
+        
+        if (a_continue){
+            func(a_controls, a_event);
         }
 
-        if (auto id_event = a_event->AsIDEvent())
+        //If we are at the end, we want to purge anything
+        if (!a_event->next)
         {
-            auto device = id_event->device.get();
-            auto e_type = id_event->eventType.get();
-            auto code = id_event->GetIDCode();
-            auto str = id_event->userEvent;
+            bool prev = MoveTracker::WasMoveHandled();
 
-            if (auto button = a_event->AsButtonEvent())
+            //Really, I just want to see if the control maps are enabled
+            if (RE::BSInputDeviceManager::GetSingleton()->IsGamepadEnabled() == false)
             {
-                if (button->value == 0)
+                auto& current = a_controls->data.moveInputVec;
+                auto& previous = a_controls->data.prevMoveVec;
+
+                //TODO:Now that I think about, this breaks the cardinal rule of accuracy and not activating buttons if they were pressed 
+                // while in a menu. SO maybe, pain that it is, I should just manually check the press state of all those buttons, using them
+                // as a collective. OR, I can perhaps just record whether a strafe thing has been seen this frame AND had a held duration.
+                // This is the best way to do it.
+                bool prev_0 = std::bit_cast<uint32_t>(previous.x) || std::bit_cast<uint32_t>(previous.y);
+                
+                
+
+                if (current.x || current.y || prev_0)
                 {
-                    //return;
+                    //I would very much like this to use virtual events instead, but that isn't really set up properly, nor is it what one would use yet for
+                    // non-finishing events.
+
+                    VirtualEvent move_event = VirtualEvent{}.AsThumbstick("Move", false, current.x, current.y, prev_0);
+                    move_event.idCode = -1;//Code here has no chance of clash, so I'm making the id here, a value that does not exist.
+
+                    if (move_event.stage)
+                    {
+
+
+
+
+                        auto clear = !DIMS::testController->HandleEvent(a_controls, &move_event);
+
+
+                        if (clear) {
+                            current = RE::NiPoint2{ -0.f, -0.f };
+                        }
+                        else {
+                            //I need to do this if the current axis is move as well.
+                            current = move_event.axis;
+
+                            //if (!current.x)
+                            //    current.x = -0.f;
+                            //if (!current.y)
+                            //    current.y = -0.f;
+                        }
+
+
+
+                    }
+
                 }
             }
-
-            if (auto thumb_event = a_event->AsThumbstickEvent())
-            {
-                auto x = thumb_event->xValue;
-                auto y = thumb_event->yValue;
-                
-            }
-
-            return func(a_controls, out ? out.get() : a_event);
         }
+      
 
-        return func(a_controls, out ? out.get() : a_event);
     }
 
     inline static REL::Relocation<decltype(thunk)> func;
+};
+
+struct PreInput_GameplayHook
+{
+    static void Install()
+    {
+        //704DE0+3B
+        uintptr_t base = REL::RelocationID{ 41259, 0 }.address();
+        //740A50+18D-193 in AE, with RDI being R14
+        auto hook_addr = base + 0x3B;
+        auto ret_addr = base + 0x41;
+
+        struct Code : Xbyak::CodeGenerator
+        {
+            Code(uintptr_t ret_addr)
+            {
+                mov(rdi, ptr[rdi]);
+                mov(rcx, rbx);
+                mov(rdx, rdi);//This actually doesn't seem to be needed.
+                
+                mov(rax, (uintptr_t)thunk);
+                call(rax);
+
+                mov(rax, ret_addr);
+                test(rdi, rdi);
+                jmp(rax);
+
+            }
+        } static code{ ret_addr };
+
+        //Null op byte after
+
+        SKSE::GetTrampoline().write_branch<5>(hook_addr, code.getCode());
+
+        logger::debug("hook success.");
+    }
+
+    static void thunk(RE::PlayerControls* a_controls, RE::InputEvent* a_event)
+    {
+        DIMS::testController->QueueAxisRelease();
+        
+        if (!a_event) {
+            //TODO: make a dedicated release function for axis stuff pls
+            DIMS::testController->ReleaseAxis(a_controls);
+        }
+
+    }
+
 };
 
 
@@ -179,6 +350,7 @@ struct ReleaseHook
 
     static void thunk(RE::PlayerControls* a_controls)
     {
+        MoveTracker::Clear();
         DIMS::testController->HandleRelease(a_controls);
         return func(a_controls);    
     }
@@ -408,6 +580,7 @@ struct SKSEInputHook
 
 
 
+
 SKSEPluginLoad(const LoadInterface* skse) {
     InitializeLogging();
     
@@ -446,6 +619,7 @@ SKSEPluginLoad(const LoadInterface* skse) {
     SKSE::AllocTrampoline(300);
 
     InputHook::Install();
+    //PreInput_GameplayHook::Install();//We don't need to do this, thumb and mouse events have ends.
     ReleaseHook::Install();
     SKSEInputHook::Install();
     QueueReleaseHook::Install();
@@ -464,4 +638,20 @@ SKSEPluginLoad(const LoadInterface* skse) {
 
     log::info("{} has finished loading.", plugin->GetName());
     return true;
+}
+
+
+
+namespace RE
+{
+    //TODO: This is for this project only, just to get rid of these pieces of trash. Please relocate this to a proper place.
+    InputEvent::~InputEvent() {}
+
+    bool                 InputEvent::HasIDCode() const { return false; }
+    const BSFixedString& InputEvent::QUserEvent() const { return ""; }
+
+    IDEvent::~IDEvent() {}
+
+    bool                 IDEvent::HasIDCode() const { return true; }
+    const BSFixedString& IDEvent::QUserEvent() const { return userEvent; }
 }

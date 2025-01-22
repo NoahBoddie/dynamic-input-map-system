@@ -4,7 +4,7 @@
 
 //*src
 #include "ActiveData.h"
-
+#include "VirtualEvent.h"
 namespace DIMS
 {
 	struct OnControl : public ITrigger
@@ -23,7 +23,7 @@ namespace DIMS
 
 		bool CanHandleEvent(RE::InputEvent* event, Argument* list) const override
 		{
-			return event->eventType == RE::INPUT_EVENT_TYPE::kButton;
+			return event->eventType == RE::INPUT_EVENT_TYPE::kButton || event->eventType == VirtualEvent::EVENT_TYPE;
 		}
 
 

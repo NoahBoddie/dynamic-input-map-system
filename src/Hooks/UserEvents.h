@@ -326,16 +326,27 @@ namespace DIMS
                 }
             }
             //*/
+            return;//This is retired for now, due to not really having a proper alignment and it's name.
 
+            CustomEvent TEST_B{ "TestDocument", "TESTAREA", 1};
 
-            CustomEvent new_mapping{ "TestDocument", "TESTAREA", 1};
+            TEST_B.eventID = "TEST_B";
+            TEST_B.inputKey = 48;
+            TEST_B.remappable = true;
+            TEST_B.userEventGroupFlag = {};
 
-            new_mapping.eventID = "TEST_B";
-            new_mapping.inputKey = 48;
-            new_mapping.remappable = true;
-            new_mapping.userEventGroupFlag = {};
+            a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].push_back(TEST_B);
+            a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kMouse].push_back(TEST_B);
 
-            a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].push_back(new_mapping);
+            CustomEvent TEST_H{ "TestDocument", "TESTAREA", 2 };
+
+            TEST_H.eventID = "TEST_H";
+            TEST_H.inputKey = 35;
+            TEST_H.remappable = true;
+            TEST_H.userEventGroupFlag = {};
+            a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].push_back(TEST_H);
+            a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kMouse].push_back(TEST_H);
+
         }
 
         inline static REL::Relocation<decltype(thunk)> func;

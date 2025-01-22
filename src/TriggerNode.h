@@ -27,11 +27,10 @@ namespace DIMS
 
 		void* conditions;//These are conditions SOLELY for the trigger in question.
 
-		size_t trigger_size()
+		size_t GetInputCount() const
 		{
-			return args.size();
+			return std::max((size_t)1, args.size());
 		}
-
 
 
 		const Argument* GetInputArgument(size_t input_index, size_t arg_index)
@@ -50,11 +49,17 @@ namespace DIMS
 			std::vector<Input> result{ };
 			result.resize(args.size());
 
-			std::transform(args.begin(), args.end(), result.begin(), [this](const std::unique_ptr<Argument[]>& it)
+			if (args.size() == 0)//TODO: needs to require that the parameters have a size of 0 to do this
+			{
+				result.push_back(triggerInfo[type]->GetInput(nullptr));
+			}
+			else
+			{
+				std::transform(args.begin(), args.end(), result.begin(), [this](const std::unique_ptr<Argument[]>& it)
 				{
 					return triggerInfo[type]->GetInput(it.get());
 				});
-
+			}
 			return result;
 		}
 
@@ -69,11 +74,19 @@ namespace DIMS
 		{
 			auto trig_info = triggerInfo[type];
 
-			for (auto i = 0; i < args.size(); i++)
+			if (args.size() == 0)//TODO: needs to require that the parameters have a size of 0 to do this
 			{
-				if (trig_info->CanHandleEvent(event, args[i].get()) == true)
-					return true;
+				return trig_info->CanHandleEvent(event, nullptr);
 			}
+			else
+			{
+				for (auto i = 0; i < args.size(); i++)
+				{
+					if (trig_info->CanHandleEvent(event, args[i].get()) == true)
+						return true;
+				}
+			}
+
 
 			return false;
 		}

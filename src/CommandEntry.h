@@ -182,7 +182,7 @@ namespace DIMS
 
 		void TryResetStages() const
 		{
-			if (trigger->trigger_size() == GetInputRef()) {
+			if (trigger->GetInputCount() == GetInputRef()) {
 				stagesVisit = EventStage::None;
 			}
 		}
@@ -209,7 +209,7 @@ namespace DIMS
 
 		InputCount GetInputRef() const { return inputs & ~k_signedInput; }
 
-		InputCount GetRealInputRef() const { return trigger->trigger_size() - GetInputRef(); }
+		InputCount GetRealInputRef() const { return trigger->GetInputCount() - GetInputRef(); }
 
 
 		InputCount GetSuccess() const { return success & ~k_signedInput; }
@@ -252,7 +252,7 @@ namespace DIMS
 			auto out = val & k_signedInput;
 			val &= ~k_signedInput;
 			success = ++val;
-			assert(trigger->trigger_size() >= success);
+			assert(trigger->GetInputCount() >= success);
 			success |= out;
 			return val;
 
@@ -283,7 +283,7 @@ namespace DIMS
 			auto out = val & k_signedInput;
 			val &= ~k_signedInput;
 			failure = ++val;
-			assert(trigger->trigger_size() >= failure);
+			assert(trigger->GetInputCount() >= failure);
 			failure |= out;
 			return val;
 
@@ -553,7 +553,7 @@ namespace DIMS
 			//This doesn't need an parameter for control checking, I can ask the trigger node this. 
 			// Make this a function.
 			//assert(cmd->triggers...);
-			inputs = node->trigger_size();
+			inputs = node->GetInputCount();
 		}
 	};
 

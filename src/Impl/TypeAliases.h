@@ -16,6 +16,8 @@ namespace RE
 	using UserEventFlag = UserEvents::USER_EVENT_FLAG;
 	using UserEventMapping = ControlMap::UserEventMapping;
 	using InputContextID = RE::UserEvents::INPUT_CONTEXT_IDS::INPUT_CONTEXT_ID;
+	using InputEventType = INPUT_EVENT_TYPE;
+	using InputDevice = INPUT_DEVICE;
 }
 
 namespace DIMS
