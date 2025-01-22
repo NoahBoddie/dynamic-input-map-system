@@ -26,11 +26,12 @@ namespace DIMS
 	struct EventData : public ActionData
 	{
 		MatrixController* controller = nullptr;
+		CommandEntryPtr command;
+		
 
-		EventData(MatrixController* ctrl, ActiveData* data, InputInterface evt, EventStage stg) : controller{ ctrl }, ActionData { data, evt, stg }
-		{
 
-		}
+		EventData(MatrixController* ctrl, CommandEntryPtr ptr, ActiveData* data, InputInterface evt, EventStage stg) : controller{ ctrl }, command{ ptr }, ActionData { data, evt, stg } 
+		{}
 	};
 
 

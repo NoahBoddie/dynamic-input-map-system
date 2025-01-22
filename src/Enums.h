@@ -2,6 +2,10 @@
 
 namespace DIMS
 {
+
+	constexpr RE::INPUT_EVENT_TYPE virtualEventType = (RE::INPUT_EVENT_TYPE)-1;
+
+
 	//Move to RGL
 	//Returns the highest bit position of an enum or integer
 	template <typename T> requires(std::is_enum_v<T> || std::is_integral_v<T>)
@@ -10,12 +14,19 @@ namespace DIMS
 		size_t value = static_cast<size_t>(v);
 
 		if (value){
-			int8_t i = 0;
+			int8_t i = 1;
 			while (value != 1) i++, value >>= 1;
 			return i;
 		}
 
 		return -1;
+	}
+
+	constexpr int strong_ordering_to_int(std::strong_ordering o)
+	{
+		if (o == std::strong_ordering::less)    return -1;
+		if (o == std::strong_ordering::greater) return 1;
+		return 0;
 	}
 
 	enum struct ParameterType
@@ -33,11 +44,30 @@ namespace DIMS
 
 
 
+	enum struct MatrixType : uint8_t
+	{//I wanted to rename this, I don't remember what.
+
+
+		//PrefixState,
+		Mode,			//The latest mode in the controller.
+		State,			//
+		//SuffixState,
+		//The relationship between ^ these is gonna have to be manual in terms of states blocking modes and such.
+
+		Dynamic,			//A matrix that is selected from the controls menu. Should be serialized outside of control map.
+		Selected,		//The default state. Default configurations attach to this, rather than the default made config
+
+		Total,
+	};
+
+
 	ENUM(TriggerType, uint8_t)
 	{
 		OnButton,
 		OnControl,
-
+		OnMouseMove,
+		OnThumbstick,
+		OnAxis,
 		Total,
 		None = TriggerType::Total,
 	};
@@ -45,13 +75,18 @@ namespace DIMS
 
 	ENUM(ActionType, uint8_t)
 	{
-		InvokeFunction,			//Invokes a C++ function. This one is personal, may make API for register
-		InvokeButton,			//Invokes an existing button
-		InvokeMouse,			//Invokes the mouse move event. Cannot use finish stage. Doing so will result in failure.
-		InvokeThumbstick,		//Invokes the thumbstick move event and calls basic. Cannot use finish events. Doing so will result in failure.
 
-		InvokeControl,			//Invokes a specific control by name.
-		InvokeAxis,				//Invokes a specific axis by name. If the original function is called and is a finish event, it will result in failure
+		InvokeFunction,			//Invokes a C++ function. This one is personal, may make API for register
+		InvokeInput,			//Queues a virtual input for SKSE's papyrus to intercept (but not PlayerControls or MenuControls)
+		//InvokeUserEvent,		//Queues a virtual user event for SKSE's papyrus to intercept (but not PlayerControls or MenuControls)
+		//InvokeButton,			//Invokes an existing button
+		//InvokeMouse,			//Invokes the mouse move event. Cannot use finish stage. Doing so will result in failure.
+		//InvokeThumbstick,		//Invokes the thumbstick move event and calls basic. Cannot use finish events. Doing so will result in failure.
+	
+		//InvokeControl,			//Invokes a specific control by name.
+		//InvokeAxis,				//Invokes a specific axis by name. If the original function is called and is a finish event, it will result in failure
+
+		InvokeMode,
 
 		Total,
 	};
@@ -64,7 +99,7 @@ namespace DIMS
 		Break,			//Breaks on the first sign of failure. On Actions it will send a failure the moment it fails. Default of action.
 		Continue,		//Ignores failure and continues to return success.
 	};
-
+	
 
 	ENUM(EventStage, uint8_t)
 	{
@@ -73,8 +108,11 @@ namespace DIMS
 		Repeating = 1 << 1,
 		Finish = 1 << 2,
 		
-		_Last,
-		Total = GetBitPosition(EventStage::_Last) + 1,//(EventStage::_Last - 1) << 1,
+		Last,
+		Total = GetBitPosition(EventStage::Last),
+
+
+		Preface = 1 << 3, //This serves as the action for tenative actions. When prefacing an execution, it will not allow multiple executions.
 
 		UntilFinish = EventStage::Start | EventStage::Repeating,
 		AfterStart = EventStage::Repeating | EventStage::Finish,
@@ -108,7 +146,8 @@ namespace DIMS
 		None,			//Technically the same as sharing, but if a trigger has this, the action takes preference.
 		Sharing,		//Triggers registered as sharing will not block, or be stopped by blocking
 		Obliging,		//Obliging will not block other triggers, but is stopped by blocking
-		Guarding,		//Guarding will block original or basic triggers, but not most others. Will be blocked by capturing and blocking.
+		
+		Guarding,		//Guarding will not block triggers but will block basic events. Cannot be blocked.
 		Defending,		//Defending will block all basic events and triggers, but not most others. Will be blocked by capturing and blocking.
 		Blocking,		//Blocking will block the trigger events choosen, while also being stopped by other blocks
 		Capturing,		//Capturing will block all events in a trigger, regardless if it actually runs them, and will be blocked.
@@ -131,12 +170,45 @@ namespace DIMS
 		Running,		//Active command has confirmed all input requirements have been met and is allowed to run commands.
 		Failing,		//Active command was managing but has now failed, and will cease to run commands.
 
+		EarlyExit = 1 << 5,
 		DelayUndo = 1 << 6,
 		Waited = 1 << 7,
 		
-		Flags = ActiveState::DelayUndo | ActiveState::Waited,
+		Flags = ActiveState::EarlyExit | ActiveState::DelayUndo | ActiveState::Waited,
 	};
 
 	
+	//This type has the chance to hold personalized flags
+	ENUM(RefreshCode, uint32_t)
+	{
+		Update,			//Code sent when a sufficient amount of time has passed since the state last updated.
 
+		GraphOutputEvent,
+		GraphInputEvent,
+		GraphVarChange,
+
+
+		Custom = 1 << 31,	//This code allows for custom refresh points.
+							// when using a custom event, one needs to specify it with a character of some kind. After that
+							// the string afterwards is turned into a hash, and this hash (with the custom bit move) is what
+							// triggers a custom event code. This code can be helpful for scripted updates, or external state changes.
+
+		
+
+		Absolute = ~RefreshCode::Custom, //Runs even if the expected refresh code doesn't matches. Using this should also reset update's timestamp.
+	};
+
+	//TODO: A map of default checks for refresh code should exist. Something with very literal checks mashed together.
+	//So if there was a state that updates on crouch and weapon draw, it will have the default condition of happening when you draw your weapon and crouch.
+	// of course, it would need space for parameters, so it would start when you crouch and end when you stop crouching. But all that comes later.
+
+
+	enum struct StateLevel : uint8_t
+	{
+		Smother,		//Smothers commands that have the same inputs, while keeping the rest of the inputs intact.
+		Merge,			//Processes all commands in both states
+		Clobber,		//Smashes lesser commands if there's an input clash only
+		Smash,			//Smashes lesser regardless of input clash
+		Collapse,		//Collapses the lesser regardless of clash
+	};
 }

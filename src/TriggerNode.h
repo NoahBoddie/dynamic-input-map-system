@@ -27,15 +27,9 @@ namespace DIMS
 
 		void* conditions;//These are conditions SOLELY for the trigger in question.
 
-		size_t trigger_size()
+		size_t GetInputCount() const
 		{
-			return args.size();
-		}
-
-		bool IsControlTrigger() const
-		{
-			auto trig_info = triggerInfo[type];
-			return trig_info->IsControlTrigger();
+			return std::max((size_t)1, args.size());
 		}
 
 
@@ -49,50 +43,50 @@ namespace DIMS
 			&input[arg_index];
 		}
 
-		std::vector<Input> GetInputs()
+		std::vector<Input> GetInputs() const
 		{
 			//No numbers because it initializes with numbers
 			std::vector<Input> result{ };
 			result.resize(args.size());
 
-			std::transform(args.begin(), args.end(), result.begin(), [this](std::unique_ptr<Argument[]>& it)
+			if (args.size() == 0)//TODO: needs to require that the parameters have a size of 0 to do this
+			{
+				result.push_back(triggerInfo[type]->GetInput(nullptr));
+			}
+			else
+			{
+				std::transform(args.begin(), args.end(), result.begin(), [this](const std::unique_ptr<Argument[]>& it)
 				{
 					return triggerInfo[type]->GetInput(it.get());
 				});
-
-			return result;
-		}
-
-
-		std::vector<ControlID> GetControls()
-		{
-			//No numbers because it initializes with numbers
-			std::vector<ControlID> result{ };
-			result.resize(args.size());
-
-			std::transform(args.begin(), args.end(), result.begin(), [this](std::unique_ptr<Argument[]>& it)
-				{
-					return triggerInfo[type]->GetControl(it.get());
-				});
-
+			}
 			return result;
 		}
 
 
 
-		bool CanHandleEvent(RE::InputEvent* event, int8_t index) const
+		
+
+
+
+		[[deprecated("No longer needed, command maps handle this, put on retirement")]]
+		bool CanHandleEvent(RE::InputEvent* event) const
 		{
 			auto trig_info = triggerInfo[type];
 
-			//This is for contros
-			auto size = index == -1 ? args.size() : index + 1;
-			
-			//This shit is a poorly attempt to get it to loop only if it's not a control
-			for (auto i = index == -1 ? 0 : index; i < size; i++)
+			if (args.size() == 0)//TODO: needs to require that the parameters have a size of 0 to do this
 			{
-				if (trig_info->CanHandleEvent(event, args[i].get()) == true)
-					return true;
+				return trig_info->CanHandleEvent(event, nullptr);
 			}
+			else
+			{
+				for (auto i = 0; i < args.size(); i++)
+				{
+					if (trig_info->CanHandleEvent(event, args[i].get()) == true)
+						return true;
+				}
+			}
+
 
 			return false;
 		}

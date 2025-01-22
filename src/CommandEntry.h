@@ -9,6 +9,8 @@ namespace DIMS
 
 	using InputCount = int8_t;
 
+	constexpr InputCount k_signedInput = 1 << (sizeof(InputCount) * 8 - 1);
+
 	struct CommandEntry
 	{
 		//Prohibit this from EVER being copy constructed
@@ -17,13 +19,13 @@ namespace DIMS
 		
 		mutable uint32_t localTimestamp = -1;
 		
-		constexpr static uint8_t invalidIndex = 15;
 
+		//TODO: With the advent of control inputs existing, we no longer need index.
 		
 		//This method does not work. Multiple viable (and intended) inputs will not result in a very sound combination. The only solution
 		// is increasing the size of literally everything.
-		mutable uint8_t _index : 4 = invalidIndex;
-		mutable EventStage stagesVisit = EventStage::None;
+
+		mutable EventStage stagesVisit  = EventStage::None;
 
 		//I'm clumping these together because they'll be used most together.
 
@@ -50,28 +52,49 @@ namespace DIMS
 		TriggerNode* trigger = nullptr;//because a command can have multiple trigger sets, something like this would be needed to differ them.
 		InputCommand* command = nullptr;
 
-		uint32_t priority()
+		uint64_t priority() const
 		{
-			//Cache this result so it doesn't change midway through
-			return trigger->priority;
+			//Priority while 
+			return command->GetPriority(trigger->priority);
 		}
 
+
+		MatrixType GetParentType() const
+		{
+			return command->GetParentType();
+		}
+
+		
+
+		bool CompareOrder(const CommandEntry& other) const
+		{
+			//This function is a comparison of 2 command entries. Ultimately it boils down to something like this.
+			// if the type is larger.
+			// if they are the same, a function call happens on the matrix (which is only allowed to happen if they are the same.
+			// if that reports that this derives from the other, it's greater. if the other way around it's lesser.
+			// if they are unrelated, THEN priority swoops in.
+			
+			
+				switch (strong_ordering_to_int(command->CompareOrder(other.command)))
+				{
+					//This is reversed, as 0 is considered higher than 1 and so on.
+				case  1:
+					return true;
+				case -1:
+					return false;
+
+				default:
+					return priority() > priority();
+				}
+
+
+		}
 
 		bool IsReady() const
 		{
 			return inputs == 0;
 		}
 
-		void PushIndex() const
-		{
-			//With this I don't think I actually need waiters anymore
-			if (_index != -1)
-			{
-				if (++_index >= trigger->trigger_size())
-					_index = 0;
-
-			}
-		}
 
 #pragma region GlobalIdea
 
@@ -147,9 +170,19 @@ namespace DIMS
 			return false;
 		}
 
+		bool HasVisitedStage(EventStage stage)
+		{
+			return stagesVisit & stage;
+		}
+
+		bool HasRanThisFrame() const
+		{
+			return GetGlobalTimestamp() == localTimestamp;
+		}
+
 		void TryResetStages() const
 		{
-			if (trigger->trigger_size() == inputs) {
+			if (trigger->GetInputCount() == GetInputRef()) {
 				stagesVisit = EventStage::None;
 			}
 		}
@@ -158,49 +191,149 @@ namespace DIMS
 		{
 			localTimestamp = -1;
 		}
+
+		void TryMarkForRealease()
+		{
+			if (GetGlobalTimestamp() != localTimestamp) {
+				ResetExecute();
+			}
+		}
+
+		bool HasEarlyRelease() const
+		{
+			return localTimestamp == -1;
+		}
 		
 #pragma endregion
 
-		uint8_t index() const
+
+		InputCount GetInputRef() const { return inputs & ~k_signedInput; }
+
+		InputCount GetRealInputRef() const { return trigger->GetInputCount() - GetInputRef(); }
+
+
+		InputCount GetSuccess() const { return success & ~k_signedInput; }
+		InputCount GetFailure() const { return failure & ~k_signedInput; }
+
+		bool IsActive() const
 		{
-			//if (_index != -1) {
-			//	if (auto time = RE::GetDurationOfApplicationRunTime(); oldTimestamp != time) {
-			//		oldTimestamp = time;
-			//		_index = 0;
-			//	}
-			//}
+			return GetSuccess() || GetFailure();
+		}
 
-			auto value = _index;
+		//These are reversed due to 0 being valued as "all inputs active"
+		InputCount IncInputRef() 
+		{	
+			auto val = inputs;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			inputs = --val;
+			assert(inputs >= 0);
+			inputs |= out;
+			return inputs; 
+		}
 
-			return value == invalidIndex ? -1 : value;
-
+		InputCount DecInputRef() 
+		{
+			auto val = inputs;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			inputs = ++val;
+			
+			inputs |= out;
+			TryResetStages();
+			return inputs; 
 		}
 
 
-		InputCount GetInputRef() const { return inputs; }
-
-
-		InputCount GetSuccess() const { return success; }
-		InputCount GetFailure() const { return failure; }
-
-
-		//These are reversed due to 0 being valued as "all inputs active"
-		InputCount IncInputRef() { inputs--; assert(inputs >= 0); return inputs; }
-
-		InputCount DecInputRef() { inputs++;  assert(trigger->trigger_size() >= inputs); TryResetStages(); return inputs; }
-
-
 		
-		InputCount IncSuccess() { success++; assert(trigger->trigger_size() >= success); return success; }
+		InputCount IncSuccess() 
+		{ 
+			auto val = success;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			success = ++val;
+			assert(trigger->GetInputCount() >= success);
+			success |= out;
+			return val;
 
-		InputCount DecSuccess() { success--;  assert(success >= 0); return success; }
+			//success++; 
+			//assert(trigger->trigger_size() >= success); 
+			//return success; 
+		}
 
-		InputCount IncFailure() { failure++; assert(trigger->trigger_size() >= failure); return failure; }
+		InputCount DecSuccess() 
+		{ 
+			auto val = success;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			success = --val;
+			assert(success >= 0);
+			success |= out;
+			if (!val) ClearComplete();
+			return val;
 
-		InputCount DecFailure() { failure--;  assert(failure >= 0); return failure; }
+			//success--;  
+			//assert(success >= 0); 
+			//return success; 
+		}
+
+		InputCount IncFailure() 
+		{ 
+			auto val = failure;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			failure = ++val;
+			assert(trigger->GetInputCount() >= failure);
+			failure |= out;
+			return val;
+
+			//failure++; 
+			//assert(trigger->trigger_size() >= failure); 
+			//return failure; 
+		}
+
+		InputCount DecFailure() 
+		{
+			auto val = failure;
+			auto out = val & k_signedInput;
+			val &= ~k_signedInput;
+			failure = --val;
+			assert(failure >= 0);
+			failure |= out;
+			if (!val) ClearCancel();
+			return val;
+
+			//failure--;  
+			//assert(failure >= 0); 
+			//return failure; 
+		}
 
 
+		bool IsEnabled() const { return !IsDisabled(); }
+		bool IsDisabled() const { return inputs & k_signedInput; }
+		bool IsComplete() const { return success & k_signedInput; }
+		bool IsCancelled() const { return failure & k_signedInput; }
 
+		void SetEnabled(bool value) 
+		{ 
+			if (value)
+				inputs &= ~k_signedInput;
+			else
+				inputs |= k_signedInput;
+		}
+
+		//Other than disable, do not use these yet.
+		
+		void Enable() { SetEnabled(true); }
+		void Disable() { SetEnabled(false); }
+		void SetComplete() { success |= k_signedInput; }
+		void SetCancel() { failure |= k_signedInput; }
+
+	protected:
+		void ClearComplete() { success &= ~k_signedInput; }
+		void ClearCancel() { failure &= ~k_signedInput; }
+		
+	public:
 
 		//I need to move a lot of these back into the trigger nodes
 		ConflictLevel GetConflictLevel() const
@@ -222,13 +355,13 @@ namespace DIMS
 
 		EventStage GetTriggerFilter() const
 		{
-			return trigger->GetStageFilter();
+			return trigger->GetStageFilter() | command->reqStage;
 		}
 
 
 		bool IsStageInTrigger(EventStage stage) const
 		{
-			return trigger->GetStageFilter() & stage;
+			return GetTriggerFilter() & stage;
 		}
 
 
@@ -252,10 +385,10 @@ namespace DIMS
 		{
 			switch (trigger->GetConflictLevel())
 			{
-			case ConflictLevel::Guarding:
 			case ConflictLevel::Blocking:
 				return GetTriggerFilter();
-
+			
+			case ConflictLevel::Guarding:
 			case ConflictLevel::Defending:
 			case ConflictLevel::Capturing:
 				return EventStage::All;
@@ -283,7 +416,6 @@ namespace DIMS
 		{
 			switch (trigger->GetConflictLevel())
 			{
-			case ConflictLevel::Guarding:
 			case ConflictLevel::Defending:
 				//Fallthrough
 			case ConflictLevel::Capturing:
@@ -301,6 +433,7 @@ namespace DIMS
 			{
 			case ConflictLevel::None:
 			case ConflictLevel::Sharing:
+			case ConflictLevel::Guarding:
 				return false;
 
 			default:
@@ -310,9 +443,9 @@ namespace DIMS
 
 
 
-		bool CanHandleEvent(RE::InputEvent* event, bool push = true) const
+		bool CanHandleEvent(RE::InputEvent* event) const
 		{
-			return trigger->CanHandleEvent(event, index());
+			return trigger->CanHandleEvent(event);
 		}
 
 
@@ -415,30 +548,14 @@ namespace DIMS
 		//bool IsDelayable() const{return trigger->trigger_size() > 1;}
 
 		//TODO: This needs to confirm these both come from the same space.
-		CommandEntry(InputCommand* cmd, TriggerNode* node, bool a_control) : trigger{ node }, command{ cmd }, _index{ a_control ? (uint8_t)0 : invalidIndex }
+		CommandEntry(InputCommand* cmd, TriggerNode* node) : trigger{ node }, command{ cmd }
 		{
 			//This doesn't need an parameter for control checking, I can ask the trigger node this. 
 			// Make this a function.
 			//assert(cmd->triggers...);
-			inputs = node->trigger_size();
+			inputs = node->GetInputCount();
 		}
 	};
 
 	using CommandEntryPtr = std::shared_ptr<CommandEntry>;
-
-
-	struct EntryIndexCleaner
-	{
-		CommandEntryPtr& entry;
-		
-		~EntryIndexCleaner()
-		{
-			entry->PushIndex();
-		}
-
-		EntryIndexCleaner(CommandEntryPtr& e) : entry{ e }
-		{
-
-		}
-	};
 }

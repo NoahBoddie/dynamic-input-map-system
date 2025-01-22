@@ -5,6 +5,7 @@
 
 #include "EventData.h"
 
+#include "Impl/IComponent.h"
 
 namespace DIMS
 {
@@ -13,7 +14,7 @@ namespace DIMS
 	struct Parameter;
 
 
-	struct IAction
+	struct IAction : public IComponent
 	{
 		virtual ~IAction() = default;
 
@@ -21,6 +22,7 @@ namespace DIMS
 		//This doesn't seem terribly needed.
 		virtual ActionType GetActionType() const = 0;
 
+		virtual EventStage GetRequiredStages() const { return EventStage::None; }
 
 		virtual std::span<Parameter> GetParameters() const;
 

@@ -2,7 +2,7 @@
 
 #include "Input.h"
 
-
+#include "Impl/IComponent.h"
 
 namespace DIMS
 {
@@ -31,11 +31,7 @@ namespace DIMS
 
 		virtual std::span<Parameter> GetParameters() const;
 
-		virtual bool IsControlTrigger() const = 0;
-
-		virtual Input GetInput(Argument* list) const = 0;
-
-		virtual ControlID GetControl(Argument* list) const = 0;
+		virtual Input GetInput(const Argument* list) const = 0;
 
 		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const
 		{
@@ -48,66 +44,25 @@ namespace DIMS
 
 		virtual uint32_t GetPrecedence(uint32_t a_input_size) const { return a_input_size; }
 
-		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const = 0;
+		//This likely will ONLY be used in the event that things like double tapping come into play. not before then.
+		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const { return true; }
 
 		//Something about parameters, but unsure how to cover that bit.
 		//virtual std::pair<uint32_t, uint32_t
 	};
 
-	struct InputTriggerBase : public ITrigger
-	{
-		bool IsControlTrigger() const noexcept override
-		{
-			return false;
-		}
-
-		ControlID GetControl(Argument*) const
-		{
-			return 0;
-		}
-	};
-
-	struct ControlTriggerBase : public ITrigger
-	{
-		bool IsControlTrigger() const noexcept override
-		{
-			return true;
-		}
-
-		Input GetInput(Argument*) const override
-		{
-			return Input::CONTROL;
-		}
-	};
 
 
 	//An input trigger base that delays inputs by default. Instead, it doesn't consider combo when
-	struct DelayInputTriggerBase : public InputTriggerBase
+	struct DelayTriggerBase : public ITrigger
 	{
-		ControlID GetControl(Argument*) const
-		{
-			return 0;
-		}
 
 		virtual uint32_t GetPrecedence(uint32_t a_input_size) const override = 0;
+
+		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const override = 0;
 
 		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const override = 0;
 
 		virtual bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override { return true; }
 	};
-
-	struct DelayComboControlTriggerBase : public ControlTriggerBase
-	{
-		Input GetInput(Argument*) const override
-		{
-			return Input::CONTROL;
-		}
-
-		virtual uint32_t GetPrecedence(uint32_t a_input_size) const override = 0;
-
-		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const override = 0;
-
-		virtual bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override { return true; }
-	};
-
 }

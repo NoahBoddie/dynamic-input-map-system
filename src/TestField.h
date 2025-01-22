@@ -16,10 +16,16 @@
 
 #include "Utility.h"
 
+#include "RE/Functions.h"
+#include "InputMatrix.h"
+
+#include "VirtualEvent.h"
+
 namespace DIMS
 {
 	//Lookup types
 	RE::PlayerControls;
+	RE::MenuControls;
 	RE::ButtonEvent;
 	RE::MouseMoveEvent;
 	RE::ThumbstickEvent;
@@ -29,107 +35,78 @@ namespace DIMS
 	RE::BSInputDeviceManager;
 	RE::CharEvent;
 	RE::FormID;
+	
 	//May make this an actual class with the ability to restore what's stored.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	
-
-
-
-
-
-
-	enum struct ControlType : uint16_t //This needs to be at MOST 16 bytes. It can be less.
+	struct ControlInterface
 	{
-		//This controls which matrix controller is being considered, the game or the menu
-		Game,
-		Menu,
+		//This is a control for menu controls and player controls (maybe other controls if there are some we find.
 
-		Total
+		RE::BSTEventSink<RE::InputEvent*>* control{};
 	};
 
 
-	struct IMatrix
-	{
-		//Consult below.
-	};
 
-	enum struct MatrixType
+	inline void CONTROLESQUE(RE::ControlMap* a_controls)
 	{
-		//Outdated.
-
-		Default,		//The default state. Default configurations attach to this, rather than the default made config
-		Custom,			//A matrix that is selected from the controls menu. Should be serialized outside of control map.
-		State,			//The a state matrix that layers over default/custom ones, but over
-		Mode,
-	};
-
-	struct InputMatrix : public IMatrix
-	{
-		//The input matrix will likely be the thing that basically houses all the nodes associated with a thing. So for example a mode's nodes,
-		// a default set up's nodes, a null set ups nodes (IE the very most basic node that simply passes on.
 		
-		//This is also the thing that possible handles state nodes as well, to which I'm not entirely sure those will combine.
-		//I'm thinking perhaps with states, there's an input matrix built into the Matrix controller that develops it as time goes on.
-
-
-		//Note, the default config (A completely empty configuration) will always have to exist.
-
-
-		//This is a dummy value, but in the setting configs, ownership is basically saying "does it belong to a mode/state/matrix named this"
-		// followed by which one of these someone is using. Having no ownership will assign to whatever the loaded default is.
-		//std::string ownership;
-
-	};
-	
-
-	namespace
-	{
-		std::unordered_map<Input::Hash, std::vector<std::string>> tmp_Controls;
-
-		std::vector<std::string>* GetControls(Input input)
+		for (auto x = 0; x < RE::InputContextID::kTotal; x++)
 		{
-			//This shit kinda temp ngl
-			return nullptr;
+
+			//RE::ControlMap::GetSingleton()->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].back();
+			for (auto i = 0; i < RE::INPUT_DEVICE::kVirtualKeyboard; i++)
+			{
+
+				for (auto& value : a_controls->controlMap[x]->deviceMappings[i])
+				{
+					//Gameplay controls
+
+					logger::info("Context:{}, Device: {}({}), code: {}, userEvent: {}, modifier: {}, linked(?): {}, index: {}, handle: {}",
+						magic_enum::enum_name((RE::InputContextID)x),
+						magic_enum::enum_name((RE::INPUT_DEVICE)i), i, value.inputKey, value.eventID.c_str(), value.modifier, value.linked, value.indexInContext
+					, value.pad14);
+				}
+			}
 		}
+
+
+		for (auto& link : a_controls->linkedMappings)
+		{
+			
+			logger::info("Device: {}({}), Mapped Name: {}, From Name: {}, Mapped Context: {}, From Context: {}",
+				magic_enum::enum_name(link.device), (int)link.device, link.linkedMappingName.c_str(), link.linkFromName.c_str(), 
+				magic_enum::enum_name(link.linkedMappingContext),
+				magic_enum::enum_name(link.linkFromContext));
+		}
+		
+		auto& in_you_go = a_controls->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard];
+		auto use_events = RE::UserEvents::GetSingleton();
+		logger::info("end {} and {}, or {} {} {}", in_you_go.size(), a_controls->pad123,
+			use_events->pad001, use_events->pad002, use_events->pad004);
+
+		constexpr auto test = offsetof(RE::UserEvents, pad001);		
 	}
 
-	void TestComp()
+
+	inline void ExecuteInput(RE::PlayerControls* controls, InputInterface& event)
 	{
-		DIMS::Input key1{ 1 };
-		DIMS::Input key2;
-
-		//std::unordered_map<Key, std::string> mapers;
-
-		//mapers[key1] = "";
-		//std::array<int
-		key1 != key2;
+		RE::ExecuteInput(controls, event);
+		RE::UnkFunc01(controls);
 	}
+
+
 
 
 	namespace detail
 	{
+		//visitor list should be a set.
 		using VisitorList = std::vector<std::reference_wrapper<std::vector<std::shared_ptr<CommandEntry>>>>;
 		using VisitorFunc = std::variant<std::function<void(CommandEntry*, bool&)>, std::function<void(CommandEntryPtr, bool&)>>;
 	}
 
 	//This what hell looks like.
-	void VisitLists(detail::VisitorFunc func, detail::VisitorList& a_lists)
+	inline void VisitLists(detail::VisitorFunc func, detail::VisitorList& a_lists)
 	{
 		using ListIterator = std::vector<std::shared_ptr<CommandEntry>>::iterator;
 
@@ -156,7 +133,7 @@ namespace DIMS
 		std::vector<PairLIT> end_list{ a_lists.size() };
 
 
-		for (int i = 0;  i < a_lists.size(); i++)
+		for (int i = 0; i < a_lists.size(); i++)
 		{
 			auto& list = a_lists[i];
 
@@ -181,8 +158,10 @@ namespace DIMS
 
 					if (lhs.first == lhs.second)
 						return true;
+					//return (*lhs.first)->priority() < (*rhs.first)->priority();
+					//return (*lhs.first)->CompareOrder(**rhs.first);
+					return (*rhs.first)->CompareOrder(**lhs.first);
 
-					return (*lhs.first)->priority() < (*rhs.first)->priority();
 				})->first;
 
 			//I'll likely want to keep this alive
@@ -200,73 +179,1157 @@ namespace DIMS
 
 			if (!should_continue)
 				break;
-		
+
 		}
 	}
 
+	
 
-	//Make this a non-template function with a template version. (Func can be changed to std::function that takes lambda that uses the func)
-	template <typename Func, std::same_as<std::vector<CommandEntryPtr>>... List>
-	void VisitListsTMPL(Func func, const List&... a_lists)
+
+
+
+
+
+
+	struct LayerMatrix : public InputMatrix
 	{
-		using TList = std::vector<std::shared_ptr<CommandEntry>>;
+		//Blocked user events are stored as device less id codes.
+		std::set<Input> blockedInputs;
 
-		//This should compound into another static list function, this one should be inline.
+		//I would like some extra settings for this. If you have a device that has -1 it means that device is entirely disabled.
+		// if you have one that has a none device and is fully negative that means ALL controls are prevented from passing through.
+		// Selected will do this sometimes, fully preventing passing through to completely reinvent the bindings.
+
+		bool CanInputPass(RE::InputEvent* event) const override
+		{
+			auto& event_name = event->QUserEvent();
+			Input input = event;
+
+			Input userEvent{ RE::INPUT_DEVICE::kNone, Hash(event_name.c_str(), event_name.length()) };
+
+			return !blockedInputs.contains(input) && !blockedInputs.contains(userEvent);
+		}
+	};
+
+
+
+
+	struct InputMode : public LayerMatrix
+	{
+
+		struct Instance : public LayerMatrix::Instance
+		{
+		public:
+			CommandEntryPtr source = nullptr;
+
+			bool isStrong = true;
+
+			InputMode* GetBaseObject()
+			{
+				return static_cast<InputMode*>(__super::GetBaseObject());
+			}
+			const InputMode* GetBaseObject() const
+			{
+				return static_cast<const InputMode*>(__super::GetBaseObject());
+			}
+
+		};
+
+		InputMode()
+		{
+			type = MatrixType::Mode;
+		}
+
+		Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+		{
+			return LoadInstance<Instance>(context, create_if_required);
+		}
+
+	};
+
+
+
+	enum struct CompareType : uint8_t
+	{
+		//The comparison type for most default stuff is 
+
+		kEqual,
+		kLesser,
+		kGreater,
+		kNotEqual,
+		kLesserOrEqual,
+		kGreaterOrEqual,
+
+		kSecondary = 1 << 7,
+	};
+
+	struct RefreshEvent
+	{
+
+
+		RefreshCode code = RefreshCode::Update;
+
+		CompareType _compare = CompareType::kEqual;
+
+		double value1 = 0;
+		double value2 = 0;
+		//I'm giving this an optional second value. if the compare type has a flag of "using the second value, the first value is used
+		// as a first pass, and must be equal. This increases the size some, but this isn't a particularly expensive increase so who cares.
+		// also static size increases aren't to be feared.
 		
-		//The core idea behind this is basically that it will record and mind the priorities of each, treating them as if they are in the same list
-		// even if they aren't.
+
+		CompareType compare() const
+		{
+			return _compare & ~CompareType::kSecondary;
+		}
+
+		CompareType IsSecondary() const
+		{
+			return (_compare & CompareType::kSecondary);
+		}
+
+		constexpr bool CheckEvent(RefreshCode a_code, double data1, double data2) const
+		{
+			//Keeping the value as a double is an easy way to represent both a float and an integer
+
+			double value;
+			double data;
+			if (code == a_code)
+			{
+				if (IsSecondary() == true) {
+					if (value1 != data1)
+						return false;
+
+					value = value2;
+					data = data2;
+				}
+				else
+				{
+					value = value1;
+					data = data1;
+				}
+
+				switch (compare())
+				{
+				case CompareType::kNotEqual:
+					return value != data;
+
+				case CompareType::kLesser:
+					return value < data;
+
+				case CompareType::kGreaterOrEqual:
+					return value >= data;
+
+				case CompareType::kGreater:
+					return value > data;
+
+				case CompareType::kLesserOrEqual:
+					return value <= data;
+
+				case CompareType::kEqual:
+					return value == data;
+				}
+			}
+
+			return false;
+		}
+
+		constexpr RefreshEvent() = default;
+
+		constexpr auto operator <=>(const RefreshEvent&) const = default;
+
+		constexpr RefreshEvent(RefreshCode a_code, double a_value, CompareType t = CompareType::kEqual) : value1{ a_value }, value2{ 0 }, code{ a_code }, _compare{ t } {}
+		constexpr RefreshEvent(RefreshCode a_code, double a_value1, double a_value2, CompareType t = CompareType::kEqual) :
+			value1{ a_value1 },
+			value2{ a_value2 },
+			code{ a_code },
+			_compare{ t | CompareType::kSecondary } {}
+	};
+
+	struct RefreshData
+	{
+		double value;
+
+		RefreshData(double v) : value{ v } {}
+		RefreshData(const RE::BSFixedString& str) : value{ (double)Hash<HashFlags::Insensitive>(str.c_str(), str.length()) }{}
+	};
+	
+
+	struct CustomMapping
+	{
+		struct Handle
+		{
+			uint32_t index;
+
+			CustomMapping* operator->() const
+			{
+				if (index != -1)
+					return std::addressof(mappingList[index]);
+
+				return nullptr;
+			}
 
 
-		//std::vector lists{ std::ref(a_lists)... };
+			Handle(uint32_t i) : index { i } {}
+		};
 
-		std::array it_list{ std::make_pair(a_lists.begin(), a_lists.end())... };
-		std::array end_list{ std::make_pair(a_lists.end(), a_lists.end())... };
 
-		using TEMP1 = decltype(it_list);
-		using TEMP = TEMP1::value_type;//??? WHY DOES IT NEED TO WORK LIKE THIS?
+		static Handle Create(std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
+		{
+			//Please make this handle nothing if it doesn't warrant a handle
+			
+			Handle handle = (uint32_t)mappingList.size();
 
-		while (it_list != end_list)
+			CustomMapping& result = mappingList.emplace_back();
+
+
+			result.fileHash = std::hash<std::string_view>{}(a_filename);
+
+			result._category = Hash<HashFlags::Insensitive>(a_category);
+
+			auto& next = nextIndexMap[result.fileHash];
+
+			result._id = next = a_index.value_or(next++);
+
+			return handle;
+		}
+
+
+		inline static std::vector<CustomMapping> mappingList;
+		inline static std::unordered_map<uint64_t, uint8_t> nextIndexMap;
+
+
+
+
+		uint64_t file() const
 		{
 
-			auto iterator = std::max_element(it_list.begin(), it_list.end(), [](auto&& lhs, auto&& rhs)
+			if (!this)
+				return 0;
+
+			return fileHash;
+		}
+
+		uint32_t id() const
+		{
+
+			if (!this)
+				return 0;
+
+			return fileHash;
+		}
+		
+		uint32_t category() const
+		{
+			if (!this)
+				return 0;
+
+			return _category;
+		}
+
+		
+
+		//I have no idea if I want to do this, but it'll be what I use if I ever make an in game editor. Probably not though.
+		//inline static std::unordered_map<uint32_t, CustomMapping> tempMap;
+
+		uint64_t fileHash;	//The hash of the file name this spawned from. Can be manually set to restore an existing config
+		
+		uint32_t _id;			//ID given or assigned within the file. Can be manually set to restore an existing config
+
+		//This can be an editor data only object.
+		//uint16_t priority;	//Determines the order of that the inputs are loaded in, also determining the order of secondary controls
+		
+		uint32_t _category;	//To be a string hash that determines what category it should belong to
+
+		//If the tag of customevent is -1, this means that it has no custom mapping data.
+		// Custom Mapping data is required if the control is either A
+
+
+
+	};
+
+	
+
+	struct CustomEvent : public RE::UserEventMapping
+	{
+	private:
+		uint32_t& tag() const { return const_cast<uint32_t&>(pad14); }
+	public:
+		CustomMapping::Handle& handle()
+		{ 
+			if (!eventID.empty() && IsCustomEvent() == false)
+				tag() = -1;
+
+			return reinterpret_cast<CustomMapping::Handle&>(pad14); 
+		}
+		const CustomMapping::Handle& handle() const 
+		{ 
+			//With this, no need to check for the handle, non-customs won't have handle at all.
+			if (!eventID.empty() && IsCustomEvent() == false)
+				tag() = -1;
+			
+			return reinterpret_cast<const CustomMapping::Handle&>(pad14);
+		}
+
+
+
+		bool IsSignature(uint64_t hash, uint8_t index) const
+		{
+			return handle()->file() == hash && handle()->id() == index;
+		}
+
+		bool CanRemapTo(uint64_t hash, uint8_t index) const
+		{
+			return IsCustomEvent() && remappable && IsSignature(hash, index);
+		}
+
+
+
+		bool IsCustomEvent() const
+		{
+			return indexInContext == -1;
+		}
+
+
+		static CustomEvent* CtorImpl2(CustomEvent* a_this)
+		{
+			logger::info("Hit");
+			//Have to brought force this bit because it's uninitialized.
+			reinterpret_cast<void*&>(a_this->eventID) = nullptr;
+			a_this->inputKey = -1;
+			a_this->modifier = -1;
+			a_this->indexInContext = 0;
+			a_this->remappable = false;
+			a_this->linked = false;
+			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
+			a_this->tag() = -1;
+			return a_this;
+		}
+
+
+		static CustomEvent* CtorImpl(CustomEvent* a_this)
+		{
+
+			//Have to brought force this bit because it's uninitialized.
+			reinterpret_cast<void*&>(a_this->eventID) = nullptr;
+			a_this->inputKey = -1;
+			a_this->modifier = -1;
+			a_this->indexInContext = 0;
+			a_this->remappable = false;
+			a_this->linked = false;
+			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
+			a_this->tag() = -1;
+			return a_this;
+		}
+
+		//Not to be used unless it's in a constructor, either this or a hooked one.
+		CustomEvent* Ctor()
+		{
+			return CtorImpl(this);
+		}
+
+		CustomEvent()
+		{
+			Ctor();
+			indexInContext = -1;
+			tag() = -1;
+		}
+
+		CustomEvent(std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
+		{
+			Ctor();
+			indexInContext = -1;
+			modifier = 0;
+			handle() = CustomMapping::Create(a_filename, a_category, a_index);
+		}
+
+	};
+	static_assert(sizeof(CustomEvent) == sizeof(RE::UserEventMapping));
+	//TODO: Static assert the offsets too. That's important.
+
+	inline auto& operator~(RE::UserEventMapping& a_this) { return reinterpret_cast<CustomEvent&>(a_this); }
+	inline auto& operator~(const RE::UserEventMapping& a_this) { return reinterpret_cast<const CustomEvent&>(a_this); }
+
+	inline auto& operator~(RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<RE::BSTArray<CustomEvent>&>(a_this); }
+	inline auto& operator~(const RE::BSTArray<RE::UserEventMapping>& a_this) { return reinterpret_cast<const RE::BSTArray<CustomEvent>&>(a_this); }
+
+
+
+	constexpr uint8_t controlMapVersion = 1;
+	//I'll be storing this here because it's config independent. If I store it in data VFS's are going to snatch it up.
+	constexpr const char* controlMapPath = "ControlMap_Dynamic.txt";
+
+
+	//enum struct Refres
+
+
+	//inline std::unordered_map<RefreshCode 
+
+
+	struct InputState : public LayerMatrix
+	{
+		struct Instance : public LayerMatrix::Instance
+		{
+		public:
+
+
+			InputState* GetBaseObject()
 			{
-				if (rhs.first == rhs.second)
+				return static_cast<InputState*>(__super::GetBaseObject());
+			}
+			const InputState* GetBaseObject() const
+			{
+				return static_cast<const InputState*>(__super::GetBaseObject());
+			}
+
+
+			auto priority() const
+			{
+				return  GetBaseObject()->_priority;
+			}
+
+
+			auto level() const
+			{
+				return GetBaseObject()->level;
+			}
+
+
+			bool IsInConflict(Instance* other) const
+			{
+				return GetBaseObject()->IsInConflict(other->GetBaseObject());
+			}
+
+
+			void SetInputEnabled(Input input, bool value)
+			{
+
+				auto it = storage.find(input.hash());
+
+				auto end = storage.end();
+
+				if (it == end) {
+					return;
+				}
+
+				for (auto& entry : it->second)
+				{
+					entry->SetEnabled(value);
+				}
+
+				for (auto parent : GetBaseObject()->parents)
+				{
+					parent->ObtainContextInstance(context)->SetInputEnabled(input, value);
+				}
+			}
+
+			//This is called on all activeStates at the end of a successful update.
+			void SetAllInputsEnabled(bool value = true)
+			{
+				for (auto& [key, lists] : storage)
+				{
+					for (auto& entry : lists)
+					{
+						entry->SetEnabled(value);
+					}
+
+				}
+
+				for (auto parent : GetBaseObject()->parents)
+				{
+					parent->ObtainContextInstance(context)->SetAllInputsEnabled(value);
+				}
+			}
+
+			bool CanInputPass(RE::InputEvent* event) const
+			{
+				return GetBaseObject()->CanInputPass(event);
+			}
+
+			bool DerivesFrom(Instance* other)
+			{
+				if (!other)
 					return false;
 
-				if (lhs.first == lhs.second)
-					return true;
+				return GetBaseObject()->DerivesFrom(other->GetBaseObject());
 
-				return (*lhs.first)->priority() < (*rhs.first)->priority();
-			})->first;
-
-			//I'll likely want to keep this alive
-			std::shared_ptr<CommandEntry> entry = *(++iterator);
-
-
-
-			using Result = std::invoke_result_t<Func, CommandEntry*>;
-
-			if constexpr (std::is_same_v<Result, void>)
-			{
-				func(entry.get());
 			}
-			else
+
+
+			std::vector<Instance*> GetViableStates(RefreshCode code, double data1, double data2, std::span<Instance*>& limit, InputState*& winner, bool& change, bool inner_change = false)
 			{
-				bool go_on = func(entry.get());
-
-				if (!go_on)
-					break;
+				//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
+				// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
 
 
+				//It should be noted that having activated this frame is not grounds for 
+
+				RefreshCode k_fakeUpdateCode = RefreshCode::Update;
+				RefreshCode k_fakeExpectedCode = RefreshCode::Update;
+
+				Instance* self = nullptr;
+
+				auto end = limit.end();
+				bool in_previous = std::find(limit.begin(), end, this) != end;
+
+				if (!inner_change && GetBaseObject()->CheckEvent(code, data1, data2) == false) {
+					//Given update either isn't within here or doesn't match parameters.
+
+					//If it's not within the expected update but it's currently active, it will just put it in there.
+					// I may actually just make a setting for this specifically to make it faster. For now, this will work.
+
+
+					if (in_previous) {
+						self = this;
+					}
+					else
+						return {};
+				}
+				//The rule is that the states in question must remain above
+				else {
+
+					//What this actually should want to do is check the parents before checking itself so if it fails its children it doesn't take place.
+					// But that won't be needed for a while even if this isn't a very smart way of doing this.
+					if (GetBaseObject()->tmpCheckParentCondition() == true && GetBaseObject()->tmpCheckCondition() == true) {
+						self = this;
+					}
+
+
+					if (self && !in_previous || !self && in_previous) {
+						inner_change = change = true;
+
+					}
+					else {
+						inner_change = false;
+					}
+				}
+
+
+
+				if (self) {
+
+					//Here a question about whether this should be viable based on the winner is cast forth.
+
+					if (!winner) {
+						winner = GetBaseObject();
+						return { self };
+					}
+					else {
+						bool collapse = GetBaseObject()->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(GetBaseObject()));
+
+						if (collapse)
+							return {};
+					}
+				}
+
+
+
+				//if (in_previous) {
+				//	return {};
+				//}
+
+
+
+				std::vector<Instance*> result;
+
+
+				for (auto parent : GetBaseObject()->parents)
+				{
+					auto add = parent->ObtainContextInstance(context)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
+
+					if (add.size() != 0)
+						result.append_range(add);
+				}
+
+				return result;
+			}
+
+			void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& winner)
+			{
+				auto ctrl_it = storage.find(control.hash());
+				auto input_it = storage.find(input.hash());
+
+				auto end = storage.end();
+
+
+				bool add = true;
+
+				bool c_find = ctrl_it != end;
+				bool i_find = input_it != end;
+
+				auto settings = GetBaseObject();
+
+				if  constexpr (0)
+				{
+					//I'm doing this real crude like for the visuals
+					if (c_find || i_find)
+					{
+						//Do this bit first if you can, it'd be nice to have the searching not done if it's not viable.
+						if (!winner) {
+							//Winner only matters here if it does either of these things
+							if (settings->ShouldSmother() || settings->ShouldSmash())
+								winner = settings;
+						}
+						else
+						{
+							if (settings->ShouldCollapse() || winner->ShouldSmash())
+							{
+								return;
+							}
+						}
+
+
+						if (c_find) {
+							list.push_back(std::ref(ctrl_it->second));
+							SetInputEnabled(control, true);
+						}
+
+						if (i_find) {
+							list.push_back(std::ref(input_it->second));
+							SetInputEnabled(input, true);
+						}
+					}
+				}
+				else
+				{
+					if (ctrl_it != end) {
+						list.push_back(std::ref(ctrl_it->second));
+						SetInputEnabled(control, true);
+					}
+
+					if (input_it != end) {
+						list.push_back(std::ref(input_it->second));
+						SetInputEnabled(input, true);
+					}
+				}
+
+
+				//Basically if it's already taken, take it back
+				InputState* _winner = winner;
+
+				for (auto& parent : settings->parents)
+				{
+					parent->ObtainContextInstance(context)->LoadVisitorList(list, input, control, _winner);
+				}
+
+
+			}
+		};
+
+
+		InputState()
+		{
+			type = MatrixType::State;
+		}
+
+		Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+		{
+			return LoadInstance<Instance>(context, create_if_required);
+		}
+
+
+
+
+		static constexpr RefreshEvent genericUpdateEvent{ RefreshCode::Update, 0.0, CompareType::kGreaterOrEqual };
+
+
+
+		//This is a matrix setting that creates the setting
+		std::vector<InputState*> parents;
+
+		StateLevel level = StateLevel::Smother;
+		int16_t _priority = 1;
+		tmp_Condition* condition = nullptr;
+
+		std::string_view debugName;
+
+		std::set<Input> conflictList;
+
+		//If refresh events exist, then the default update is used.
+		std::set<RefreshEvent> refreshEvents;
+
+
+		bool CheckEvent(RefreshCode a_code, double data1, double data2)
+		{
+			//returns 1 if true, 0 if false, -1 if it fails the basic state update and doesn't have any entries.
+
+			if (a_code == RefreshCode::Absolute) {
+				return true;
+			}
+
+
+			if (refreshEvents.empty() && parents.empty() == true) {
+				return genericUpdateEvent.CheckEvent(a_code, data1, data2);
+			}
+
+
+			for (auto& event : refreshEvents)
+			{
+				if (event.CheckEvent(a_code, data1, data2) == true)
+				{
+					return true;
+				}
+			}
+
+			for (auto parent : parents)
+			{
+				if (parent->CheckEvent(a_code, data1, data2) == true)
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+
+
+		MatrixType GetMatrixType() const override { return MatrixType::State; }
+
+		std::strong_ordering CompareOrder(const Matrix* o) const override
+		{
+			auto other = dynamic_cast<const InputState*>(o);
+
+			if (DerivesFrom(other) == true) {
+				return std::strong_ordering::greater;
+			}
+
+			if (other->DerivesFrom(this) == true) {
+				return std::strong_ordering::less;
+			}
+
+			return std::strong_ordering::equal;
+		}
+
+		//If input is relevant to the below
+		bool IsInputRelevant() const
+		{
+			switch (level)
+			{
+			case StateLevel::Smother:
+			case StateLevel::Clobber:
+				return true;
+
+			default:
+				return false;
 			}
 		}
+
+		bool ShouldSmash() const
+		{
+			switch (level)
+			{
+			case StateLevel::Smash:
+			case StateLevel::Clobber:
+				return true;
+
+			default:
+				return false;
+			}
+		}
+
+		//Collapse is the act of crumpling despite not being asked to.
+		bool ShouldCollapse() const
+		{
+			switch (level)
+			{
+			case StateLevel::Smash:
+			case StateLevel::Clobber:
+			case StateLevel::Collapse:
+				return true;
+
+			default:
+				return false;
+			}
+		}
+
+		bool ShouldSmother() const
+		{
+
+			switch (level)
+			{
+			case StateLevel::Smash:
+			case StateLevel::Clobber:
+			case StateLevel::Smother:
+				return true;
+
+			default:
+				return false;
+			}
+		}
+
+
+		bool ShouldBeSmothered() const
+		{
+			return level != StateLevel::Merge;
+		}
+
+
+
+
+		void tmpBuildConflictList()
+		{
+			conflictList.clear();
+
+			for (auto& command : commands)
+			{
+				for (auto& trigger : command.triggers)
+				{
+					conflictList.insert_range(trigger.GetInputs());
+				}
+			}
+
+			for (auto parent : parents)
+			{
+				//This assumes that the previous has built it's own list.
+				conflictList.insert_range(parent->conflictList);
+			}
+		}
+
+		bool IsInConflict(const InputState* other) const
+		{
+			auto control_map = RE::ControlMap::GetSingleton();
+
+
+			for (auto input : conflictList) {
+				if (other->HasInput(input) == true)
+					return true;
+			}
+
+			if (other->HasRawInputs() == true)
+			{
+				for (auto input : other->conflictList) {
+					if (HasInputAsUserEvent(input) == true)
+						return true;
+
+
+					continue;
+
+					//saving this just in case
+					if (input.IsUserEvent() == true)
+						continue;
+
+
+					if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+						//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+						Input ctrl = Input::CreateUserEvent(name);
+
+						if (conflictList.contains(ctrl) == true)
+							return true;
+					}
+
+
+				}
+			}
+
+			return false;
+		}
+
+
+		bool IsInConflict(const InputState* other, Input input) const
+		{
+			return HasInput(input) && other->HasInput(input);
+		}
+
+
+		//A bool will get flipped on if we even need to look for user events in the conflict list.
+		bool HasRawInputs() const
+		{
+			//When a raw input is added to a state, a boolean flag will be ticked that will start the search from the other side.
+			return true;
+		}
+
+
+
+		bool HasInputAsUserEvent(Input input) const
+		{
+			if (input.IsUserEvent() == false) {
+				auto control_map = RE::ControlMap::GetSingleton();
+
+				if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+					//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+					Input ctrl = Input::CreateUserEvent(name);
+
+					if (conflictList.contains(ctrl) == true)
+						return true;
+				}
+			}
+
+			return false;
+		}
+
+
+		bool HasInput(Input input) const
+		{
+			if (conflictList.contains(input) == true)
+				return true;
+
+			return HasInputAsUserEvent(input);
+		}
+
+		bool IsInConflict(const InputState& other)
+		{
+			return IsInConflict(&other);
+		}
+
+
+		bool DerivesFrom(const InputState* other) const
+		{
+			if (!other)
+				return false;
+
+			if (this == other)
+				return true;
+
+			for (auto parent : parents)
+			{
+				if (parent->DerivesFrom(other) == true)
+					return true;
+			}
+
+			return false;
+
+		}
+
+		bool CanInputPass(RE::InputEvent* event) const override
+		{
+			auto prev = __super::CanInputPass(event);
+
+			if (prev)
+			{
+				for (auto parent : parents)
+				{
+					if (parent->CanInputPass(event) == false) {
+						return false;
+					}
+				}
+			}
+
+			return prev;
+		}
+
+		bool tmpCheckCondition()
+		{
+			if (condition)
+				return condition(RE::PlayerCharacter::GetSingleton());
+
+			return true;
+		}
+
+		bool tmpCheckParentCondition()
+		{
+			for (auto parent : parents)
+			{
+				if (!parent->tmpCheckCondition() || !parent->tmpCheckParentCondition()) {
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		int16_t priority() const
+		{
+			return _priority;
+		}
+	};
+
+	struct StateMap;
+
+	struct StateManager
+	{
+		//TODO: StateManager doesn't quite respect the idea of different contexts. this needs to be explored at some point.
+		// Perhaps I can make it so access to a state manager is tied to a context. Some states might be able to exist in
+		// multiple places, but they'd have to be copies.
+
+
+
+		//Manager doesn't quite represent what this is. A "default" state basically controls this.
+		// So basically one for menu, one for gameplay, maybe other states. The gist is this is a maker.
+
+
+
+
+
+
+
+		std::vector<std::unique_ptr<InputState>> storage;//The purpose of this is basically just storage
+
+		//std::vector<StateMap*> record;//Every state map it's ever lended to. May not be required.
+
+		std::vector<InputState*> headers;
+
+		InputState* CreateState(std::vector<InputState*> parents = {})
+		{
+			auto& result = storage.emplace_back(new InputState);
+
+			result->parents = parents;
+
+			for (const auto& par : parents) {
+				headers.erase(std::remove(headers.begin(), headers.end(), par), headers.end());
+			}
+
+			
+			//headers.push_back(result.get());
+			
+			//I have no idea if what's placed will actually adhere to order, so it's best to do it here or whatever
+			headers.insert(std::upper_bound(headers.begin(), headers.end(), result.get(), [](const auto& lhs, const auto& rhs)
+					{return lhs->priority() > rhs->priority(); }),
+					result.get());
+
+			return result.get();
+		}
+
+
+		StateMap CreateMap();
+	};
+
+	struct StateMap//This carries the unique pointers of active states
+		
+	{
+		
+		//These are the childless active states, who collectively maintain the existence
+		//std::vector<std::unique_ptr<EntryState>> headers;
+		
+		//I'm unsure if this should be shared or not. The unique pointers existing makes sure these will not die, so I guess
+		// this is good.
+
+		StateManager* manager = nullptr;
+		
+
+		//The active state notes which entry it comes from
+		std::vector<InputState::Instance*> activeStates;
+
+
+		uint32_t updateTimestamp = 0;
+		//Active states
+
+	
+
+
+		void Update(RefreshCode code, RefreshData data1, RefreshData data2 = 0)
+		{
+			constexpr auto context = RE::InputContextID::kGameplay;
+
+			std::span<InputState::Instance*> limits{ activeStates };
+
+			//This should only be made once we're sure that there's actually even gonna be an update.
+			// To this, each time the real update is called, it will be associated with an update event. If one of those update event's match the code given,
+			// it will attempt to update.
+
+			//Correction, if it's within the sp
+			std::vector<InputState::Instance*> updateList;
+
+
+			InputState* winner = nullptr;
+
+			bool change = false;
+
+			//I think while updating, if the headers don't say they want to update, we just take a span of their data, and add it into the span.
+			for (int i = 0; i < manager->headers.size(); i++)
+			{
+				auto header = manager->headers[i];
+				//How do we handle updates?
+ 				//First, we get the 
+				//if ()
+				updateList.append_range(header->ObtainContextInstance(context)->GetViableStates(code, data1.value, data2.value, limits, winner, change));
+			}
+
+			//if the event has done nothing, forgo all this.
+			if (!change)
+				return;
+
+			std::unordered_set<InputState::Instance*> seen;
+
+			auto it = std::remove_if(
+				updateList.begin(), updateList.end(),
+				[&seen](InputState::Instance* value) {
+					return !seen.emplace(value).second;
+				});
+
+
+			//This does not fucking work btw, we need to keep sorted to priority.
+			//std::sort(updateList.begin(), updateList.end());
+			//auto it = std::unique(updateList.begin(), updateList.end());
+			updateList.erase(it, updateList.end());
+
+			//This sort needs to happen because if a state has parents that get submitted instead it should not have those be higher or lower than due.
+			std::sort(updateList.begin(), updateList.end(), [](auto& lhs, auto& rhs) {return lhs->priority() > rhs->priority(); });
+
+			activeStates = updateList;
+
+			for (auto state : activeStates){
+				state->SetAllInputsEnabled(false);
+			}
+		}
+
+		void CheckUpdate()
+		{
+			bool absolute = !updateTimestamp && activeStates.empty();
+
+			if (absolute || SecondsSinceLastUpdate(updateTimestamp) >= Settings::updateTime) {
+				Update(absolute ? RefreshCode::Absolute : RefreshCode::Update, updateTimestamp);//We are updating under the event of OnTick.
+				updateTimestamp = RE::GetDurationOfApplicationRunTime();
+				
+			}
+		}
+
+		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input, Input control)
+		{
+			CheckUpdate();
+			
+			bool result = true;
+
+			//Now that I think about it, the way this is set up, any state that can run
+
+			InputState* winner = nullptr;
+
+			for (auto state : activeStates)
+			{
+				//If we aren't collecting, we're just shutting down, primarily so multipress commands don't end up causing undue waiters that may jam functionality
+
+				state->LoadVisitorList(list, input, control, winner);
+
+
+				if (state->CanInputPass(event) == false)
+					result = false;
+			}
+
+			return result;
+		}
+
+	};
+
+
+	inline StateMap StateManager::CreateMap()
+	{
+		StateMap result;
+		result.manager = this;
+		
+		//Here you'd pull the proper manager from a context list or something.
+
+		return result;
 	}
+
+
+
+	namespace
+	{
+		std::unordered_map<Input::Hash, std::vector<std::string>> tmp_Controls;
+
+		std::vector<std::string>* GetControls(Input input)
+		{
+			//This shit kinda temp ngl
+			return nullptr;
+		}
+	}
+
+
 
 
 	//Specific polymorphic types like this likely will not exist.
 	//struct StateMatrix : public InputMatrix {};
 	//using tmp_Key = uint64_t;
-	using CommandMap = std::unordered_map<Input::Hash, std::vector<std::shared_ptr<CommandEntry>>>;
 
 	struct MatrixMap
 	{
@@ -275,13 +1338,12 @@ namespace DIMS
 		
 		//ActiveCommands, and wait lists should hold onto this shared pointer when executing data. This way, it prevents the entry
 		// from dying before being unhandled.
+		
+
 
 	};
 
 	
-
-
-
 	struct FakeThumbstick
 	{
 		static constexpr auto VTABLE = RE::VTABLE_ThumbstickEvent;
@@ -293,7 +1355,7 @@ namespace DIMS
 		static constexpr auto VTABLE = RE::VTABLE_MouseMoveEvent;
 	};
 
-	static RE::ThumbstickEvent* CreateThumb(const RE::BSFixedString& a_userEvent, RE::ThumbstickEvent::InputType a_idCode, float a_x, float a_y)
+	inline static RE::ThumbstickEvent* CreateThumb(const RE::BSFixedString& a_userEvent, RE::ThumbstickEvent::InputType a_idCode, float a_x, float a_y)
 	{
 
 
@@ -301,7 +1363,7 @@ namespace DIMS
 		std::memset(reinterpret_cast<void*>(result), 0, sizeof(RE::ThumbstickEvent));
 		if (result) {
 			
-			stl::emplace_vtable<FakeThumbstick>(reinterpret_cast<FakeThumbstick*>(result));
+			SKSE::stl::emplace_vtable<FakeThumbstick>(reinterpret_cast<FakeThumbstick*>(result));
 			result->device = RE::INPUT_DEVICE::kGamepad;
 			result->eventType = RE::INPUT_EVENT_TYPE::kThumbstick;
 			result->next = nullptr;
@@ -314,13 +1376,13 @@ namespace DIMS
 	}
 
 
-	static RE::MouseMoveEvent* CreateMouse(const RE::BSFixedString& a_userEvent, float a_x, float a_y)
+	inline static RE::MouseMoveEvent* CreateMouse(const RE::BSFixedString& a_userEvent, float a_x, float a_y)
 	{
 		auto result = RE::malloc<RE::MouseMoveEvent>(sizeof(RE::MouseMoveEvent));
 		std::memset(reinterpret_cast<void*>(result), 0, sizeof(RE::MouseMoveEvent));
 		if (result) {
 
-			stl::emplace_vtable<FakeMouseMove>(reinterpret_cast<FakeMouseMove*>(result));
+			SKSE::stl::emplace_vtable<FakeMouseMove>(reinterpret_cast<FakeMouseMove*>(result));
 			result->device = RE::INPUT_DEVICE::kMouse;
 			result->eventType = RE::INPUT_EVENT_TYPE::kMouseMove;
 			result->next = nullptr;
@@ -333,7 +1395,7 @@ namespace DIMS
 	}
 
 	
-	void tmp_say_a_nameNEW(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	inline void tmp_say_a_nameNEW(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
 	{
 		auto report = std::format("Action: No. {} called. Stage: {}, time {:X}", 
 			param1.As<int32_t>(), magic_enum::enum_name(data.stage), RE::GetDurationOfApplicationRunTime());
@@ -343,14 +1405,47 @@ namespace DIMS
 
 	}
 
-	void tmp_YELL_a_nameNEW(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	inline void tmp_YELL_a_nameNEW(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
 	{
 		auto report = std::format("Action: No. {} called. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
 		logger::info("{}", report);
 		RE::DebugMessageBox(report.c_str());
 
 	}
-	//
+
+	inline void KillingMeSlowly(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	{
+		RE::PlayerCharacter::GetSingleton()->AsActorValueOwner()->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage,
+			RE::ActorValue::kHealth, -param1.As<float>() * RE::GetSecondsSinceLastFrame());
+
+	}
+
+
+
+
+	inline void ChangeMeSlowly(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	{
+		auto axis = data.event.GetAxis();
+
+		auto player = RE::PlayerCharacter::GetSingleton()->AsActorValueOwner();
+
+		player->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage,
+			RE::ActorValue::kStamina, 30 * axis.x * RE::GetSecondsSinceLastFrame());
+
+		player->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage,
+			RE::ActorValue::kMagicka, 30 * axis.y * RE::GetSecondsSinceLastFrame());
+
+		if (data.stage == EventStage::Finish)
+			RE::DebugMessageBox("Finished change");
+	}
+
+	inline void tmp_YELL_a_Mode(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2)
+	{
+		auto report = std::format("Mode Action: No. {} called. Stage: {}", param1.As<int32_t>(), magic_enum::enum_name(data.stage));
+		logger::info("{}", report);
+		RE::DebugMessageBox(report.c_str());
+		RE::PlaySound("UIObjectiveNew");
+	}
 	
 	struct DelayedCommand
 	{
@@ -377,11 +1472,61 @@ namespace DIMS
 		bool _init = false;//This can be turned back off do note.
 
 		std::array<ActiveCommand::ID, EventStage::Total> blockCommands{};
+		EventStage basicCommands = EventStage::None;
+		
+		int16_t waiters = 0;
 		uint32_t highestPrecedence = 0;//The block delay is the highest level of delay priority active. If something is below this
 									// it cannot block other actions
 
+#pragma region basic waiting/block funcs
+		bool IsBasicRunning() const
+		{
+			return !waiters;
+		}
 
+		void SetBasicFailure()
+		{
+			//This is called once something has successfully run once.
+			waiters = -1;
+		}
 
+		void DecBasicDelay()
+		{
+			if (waiters >= 0)
+			{
+				waiters--;
+				assert(waiters >= 0);
+			}
+		}
+
+		void IncBasicDelay()
+		{
+			if (waiters >= 0)
+			{
+				waiters++;
+			}
+		}
+
+		void SetRedoStage(EventStage stage)
+		{
+			basicCommands |= stage;
+		}
+
+		bool GetRedoStages() const
+		{
+			return basicCommands;
+		}
+		void ClearRedoStages()
+		{
+			basicCommands = EventStage::None;
+		}
+
+		std::pair<InputNumber, InputNumber> GetInputValues()
+		{
+			return  { data.value1, data.value2 };
+		}
+
+#pragma endregion
 
 #pragma region new block funcs
 
@@ -395,28 +1540,30 @@ namespace DIMS
 		{
 			ClearBlockStages();
 
-			EventStage reqs = EventStage::None;
+			//This prevents other items of precedence from taking place.
+			//EventStage reqs = EventStage::None;
 
 			for (auto& command : sharedCommands)
 			{
-				if (reqs == EventStage::All)
-					break;
+				//if (reqs == EventStage::All)
+				//	continue;
 
-				if (command.IsRunning() == false)
-					break;
+				if (command.IsRunning() == true)
+					EmplaceBlockStages(command);
 				
-				auto pred = highestPrecedence;
+				//auto pred = highestPrecedence;
 
-				bool result = EmplaceBlockStages(command);
+				//auto result = EmplaceBlockStages(command);
+				
 
 				//Precedence has changed. previous value no longer value.
-				if (pred == highestPrecedence) {
-					reqs = EventStage::None;
-				}
+				//if (pred == highestPrecedence) {
+				//	reqs = EventStage::None;
+				//}
 
-				if (result) {
-					reqs |= command->GetTriggerFilter();
-				}
+				//if (result) {
+				//	reqs |= command->GetTriggerFilter();
+				//}
 			}
 		}
 
@@ -440,6 +1587,7 @@ namespace DIMS
 			}
 		}
 
+
 		bool EmplaceBlockStages(ActiveCommand& cmd)
 		{
 
@@ -457,34 +1605,36 @@ namespace DIMS
 
 			auto stages = cmd->GetTriggerFilter();
 
-			for (int x = 1, y = 0; x < EventStage::Total; (x <<= 1), y++)
+			if (stages)
 			{
-				if (stages & x)
+				for (int x = 1, y = 0; x < EventStage::Total; (x <<= 1), y++)
 				{
-					auto& block_id = emplace_array[y];
-
-					if (cmd.id() == block_id)
-						continue;
-
-					switch (stages)
+					if (stages & x)
 					{
-					case EventStage::Start:
-					case EventStage::Repeating:
-					case EventStage::Finish:
-						if (!block_id)
-							block_id = cmd.id();
-						else
-							return false;
+						auto& block_id = emplace_array[y];
+
+						if (cmd.id() == block_id)
+							continue;
+
+						switch (x)
+						{
+						case EventStage::Start:
+						case EventStage::Repeating:
+						case EventStage::Finish:
+							if (!block_id)
+								block_id = cmd.id();
+							else
+								return false;
 
 
-					default:
-						break;
+						default:
+							break;
+						}
 					}
 				}
+
+				blockCommands = emplace_array;
 			}
-
-			blockCommands = emplace_array;
-
 			return true;
 		}
 
@@ -562,6 +1712,13 @@ namespace DIMS
 
 			command.Activate();
 
+			//I just realized ordering this like this might make higher layers not handle properly.
+			// Still gonna keep this around in case I need to remember it exists.
+			
+			//auto& result = *sharedCommands.insert(std::upper_bound(sharedCommands.begin(), sharedCommands.end(), command, [](const auto& lhs, const auto& rhs)
+			//	{return lhs->priority() > rhs->priority(); }),
+			//	std::move(command));
+
 			auto& result = sharedCommands.emplace_back(std::move(command));
 
 
@@ -583,6 +1740,7 @@ namespace DIMS
 				//This should only be trigger if the command says the input should wait too.
 				// For now, this means nothing.
 				preserve++;
+				IncBasicDelay();
 
 				for (auto& other : sharedCommands)
 				{
@@ -613,6 +1771,7 @@ namespace DIMS
 		}
 
 
+
 		void FailDelayCommand(ActiveCommand& act, EventStage stage)
 		{
 			//To do this here I need all the information that one has firing stuff normally.
@@ -624,6 +1783,7 @@ namespace DIMS
 				bool found_self = false;
 
 				preserve--;
+				DecBasicDelay();
 
 				for (auto& other : sharedCommands)
 				{
@@ -639,7 +1799,8 @@ namespace DIMS
 							//Don't control what gets to go off by whether it has
 							ActiveCommand::ID dump;
 
-							EmplaceCommand(other.entry, stage, dump, &other);
+							//EmplaceCommand(other.entry, stage, dump, &other);
+							UpdateCommand(other, stage);
 						}
 
 
@@ -651,132 +1812,89 @@ namespace DIMS
 
 				act.SetDelayUndone();
 			}
-
+			act.Deactivate();
 		}
 
 
 		//TODO: Need a function to fail a command, which clears out the waiters.
 
-		//private
-		bool EmplaceBlockCommandID(const ActiveCommand& cmd)
-		{
-			if (cmd.entry->ShouldBlockTriggers() == false)
-				return true;
+	
 
-			std::vector<ActiveCommand::ID*> adjust_list;
+		void UpdateCommand(ActiveCommand& act, EventStage stage)
 
-			auto stages = cmd.entry->GetBlockingFilter();
-
-			for (int x = 1, y = 0; x < EventStage::Total; (x <<= 1), y++)
-			{
-				if (stages & x)
-				{
-					auto& block_id = blockCommands[y];
-
-					switch (stages)
-					{
-					case EventStage::Start:
-					case EventStage::Repeating:
-					case EventStage::Finish:
-						if (!block_id || cmd.id() == block_id)
-							goto jump;
-						
-						return false;
-
-
-					default:
-						break;
-
-					jump:
-						adjust_list.push_back(&block_id);
-						break;
-					}
-				}
-			}
-
-			for (auto block_id : adjust_list)
-			{
-				*block_id = cmd.id();
-			}
-
-			highestPrecedence = cmd->Precedence();
-
-			return true;
-		}
-
-
-
-		//Returns the active id so one can check if they are the blocking one.
-		bool EmplaceCommand(CommandEntryPtr cmd, EventStage stage, ActiveCommand::ID& id, ActiveCommand* act_ptr = nullptr)
 		{//TODO: Make a different version of emplace function. I don't want this option exposed.
-			if (!act_ptr)
-				act_ptr = GetCommandFromEntry(cmd);
 
-			auto block_id = GetIDFromStage(stage);
-
-			if (!act_ptr) {
-				if (cmd->GetFirstStage() < stage || block_id) {
-					//This refuses to use commands that isn't on it's proper stage.
-					return false;
-				}
-			}
-			else if (act_ptr->entry->IsDelayable() == true)
+			if (act.entry->IsDelayable() == true)
 			{
-				if (stage == EventStage::Finish) {
-					auto t_stage = act_ptr->entry->GetTriggerFilter();
-
-					//If it doesn't have a finish stage and currently isn't running.
-					// I think this may not need to query if it has finish anymore, if it's not done by finish stage, it will never be done.
-					//if (t_stage & ~(t_stage ^ EventStage::Finish) && act_ptr->IsRunning() == false)
-					//if (act_ptr->entry->IsStageInTrigger(EventStage::Finish) == false && act_ptr->IsRunning() == false)
-					if (act_ptr->IsRunning() == false)
-						act_ptr->Deactivate();
+				if (!act.IsRunning() && stage == EventStage::Finish) {
+					act.Deactivate();
 				}
 
 
-				if (!act_ptr->IsRunning() && act_ptr->IsDelayUndone() == false)
+				if (!act.IsRunning() && act.IsDelayUndone() == false)
 				{
-					DelayState delay_state = act_ptr->IsFailing() ? DelayState::Failure : act_ptr->entry->GetDelayState(nullptr, data);
+					DelayState delay_state = act.IsFailing() ? DelayState::Failure : act.entry->GetDelayState(nullptr, data);
 
 
 					if (delay_state == DelayState::Failure) {
 						//signify some failure.
-						FailDelayCommand(*act_ptr, stage);
+						FailDelayCommand(act, stage);
 					}
-				}	
+				}
 			}
 
 
-		
-			ActiveCommand act_cmd{ cmd, stage };
-
-			ActiveCommand* command = act_ptr ? act_ptr : &act_cmd;
-			
-			if (cmd->ShouldBlockTriggers() && EmplaceBlockStages(*command) == false)
-				return 0;
-
-			//if (cmd->ShouldBlockTriggers() && EmplaceBlockCommandID(*command) == false)
-			//	return 0;
-
-			if (!act_ptr) {
-				command = &AddCommand(act_cmd);
-			}
-			else if (command->entry->GetTriggerFilter() & stage) {
-				command->stages |= stage;
-			}
-
-			id = act_cmd.id();
-
-			if (command->IsRunning() == true) {
-				return true;
-			}
-
-			//This needs to be done in the handle function
-			//ObtainDelayedCommands().emplace(command->id());
-			
-			return false;
+			if (act.IsRunning() && act->ShouldBlockTriggers() == true)
+				EmplaceBlockStages(act);
 		}
 
+		void MakeCommand(CommandEntryPtr& cmd, EventStage stage)
+		{//TODO: Make a different version of emplace function. I don't want this option exposed.
+			if (GetCommandFromEntry(cmd) != nullptr)
+				return;
+
+
+			//This bit gets saved, but for what I do not know.
+			//cmd->GetFirstStage() < stage;
+
+
+			
+			if (cmd->ShouldBeBlocked() && IsStagesBlocked(cmd->GetTriggerFilter()) == true) {
+				return;
+			}
+			
+
+			ActiveCommand act{ cmd };
+
+			if (cmd->ShouldBlockTriggers() && EmplaceBlockStages(act) == false)
+				return;
+
+			AddCommand(act);
+		}
+		//This is actually useless btw.
+		void EmplaceCommand(CommandEntryPtr cmd, EventStage stage)
+		{
+			if (stage == EventStage::Start) {
+				if (cmd->GetSuccess() == 0)//Should failure be 0 too?
+					MakeCommand(cmd, stage);
+			}
+			else
+			{
+				auto act = GetCommandFromEntry(cmd);
+
+				if (act)
+					UpdateCommand(*act, stage);
+			}
+		}
+
+
+		void Update(EventStage stage)
+		{
+			for (auto& act : sharedCommands)
+			{
+				UpdateCommand(act, stage);
+			}
+		}
 
 		//Feel like something like UpdateCommand would be best here.
 
@@ -786,7 +1904,7 @@ namespace DIMS
 				auto it = sharedCommands.begin();
 				auto end = sharedCommands.end();
 
-				it = std::find_if(it, end, [id](ActiveCommand& entry) {return entry.id() == id; });
+				it = std::find_if(it, end, [id](const ActiveCommand& entry) {return entry.id() == id; });
 
 				if (it != end)
 					return std::addressof(*it);
@@ -794,17 +1912,71 @@ namespace DIMS
 			
 			return nullptr;
 		}
-		
+		const ActiveCommand* GetCommandFromID(ActiveCommand::ID id) const 
+		{
+			if (id) {
+				auto it = sharedCommands.begin();
+				auto end = sharedCommands.end();
+
+				it = std::find_if(it, end, [id](const ActiveCommand& entry) {return entry.id() == id; });
+
+				if (it != end)
+					return std::addressof(*it);
+			}
+
+			return nullptr;
+		}
+
+
+
+
 		inline ActiveCommand::ID GetIDFromStage(EventStage stage) const
 		{
 			auto inch = std::countr_zero(std::to_underlying(stage));
 			return blockCommands[inch];
 		}
 
+		inline bool IsStagesBlocked(EventStage stage, MatrixType type = MatrixType::Total) const
+		{
+			if (stage)
+			{
+				for (auto x = 1, y = 0; x < EventStage::Total; x <<= 1, y++)
+				{
+					if (stage & x && blockCommands[y]) {
+						//if (type != MatrixType::Total)
+						//{
+						//	auto command = GetCommandFromID(blockCommands[y]);
+						//	if (!command || command->entry->)
+						//}
+
+						return true;
+					}
+
+				}
+			}
+			return false;
+		}
+
+
 		ActiveCommand* GetBlockCommandFromStage(EventStage stage)
 		{
 			auto id = GetIDFromStage(stage);
 			return GetCommandFromID(id);
+		}
+
+
+		std::array<ActiveCommand*, EventStage::Total> GetAllBlockCommands()
+		{
+			std::array<ActiveCommand*, EventStage::Total> result;
+
+			for (int i = 0; i < EventStage::Total; i++)
+			{
+				auto command = GetCommandFromID(blockCommands[i]);
+
+				result[i] = command;
+			}
+
+			return result;
 		}
 
 
@@ -821,18 +1993,6 @@ namespace DIMS
 			return nullptr;
 		}
 
-		BlockingState GetBlockingState() const
-		{
-			return blockCommands == emptyBlock ?
-				BlockingState::None : isStrong ?
-				BlockingState::Strong : BlockingState::Weak;
-		}
-
-		bool IsBlocking() const { return GetBlockingState() != BlockingState::None; }
-
-		bool IsBlockingWeak() const { return GetBlockingState() == BlockingState::Weak; }
-		
-		bool IsBlockingStrong() const { return GetBlockingState() == BlockingState::Strong; }
 
 		/// <summary>
 		/// Checks if a given event stage is blocked.
@@ -840,23 +2000,12 @@ namespace DIMS
 		/// <param name="stage">The given event stage to check. Should be a single flag.</param>
 		/// <param name="trig">If only triggers should be checked for blocking.</param>
 		/// <returns></returns>
-		bool IsStageBlocked(EventStage stage, bool trig)
+		bool IsStageBlocked(EventStage stage)
 		{
-			if (trig) {
-				//For regular trig blocking you need to visit all active commands
-				if (auto cmd = GetBlockCommandFromStage(stage)) {
-					return cmd->entry->ShouldBlockTriggers();
-				}
-			}
-			else {
-				for (auto& act : sharedCommands) {
-					//This doesn't check for stages because if it blocks once it blocks every one after
-					if (act.entry->ShouldBlockNative() == true)
-						return true;
-				}
-
-			}
-			return false;
+			auto inch = std::countr_zero(std::to_underlying(stage));
+			
+			
+			return blockCommands[inch];
 		}
 		
 
@@ -884,7 +2033,7 @@ namespace DIMS
 			}
 
 			if (seed != hash) {
-				previous_value = IsStageBlocked(stage, true);//This has no need to ask for not trigger. it will already do non-triggers.
+				previous_value = IsStageBlocked(stage);//This has no need to ask for not trigger. it will already do non-triggers.
 				hash = seed;
 			}
 			bool result = previous_value;
@@ -953,14 +2102,21 @@ namespace DIMS
 			return result;
 		}
 
-		void VisitActiveCommands(std::function<void(ActiveCommand&)> func)
+
+		void VisitActiveCommands(bool ignore_running, std::function<void(ActiveCommand&)> func)
 		{
 			for (auto& command : sharedCommands) {
-				if (command.IsRunning() == true) {
+				if (ignore_running || command.IsRunning() == true) {
 					func(command);
 				}
 			}
 		}
+
+		auto VisitActiveCommands(std::function<void(ActiveCommand&)> func)
+		{
+			return VisitActiveCommands(false, func);
+		}
+
 
 
 	};
@@ -1009,14 +2165,34 @@ namespace DIMS
 
 		ActiveInputHandle(Input h, ActiveInputMap& m, IValuePair i) : hash{ h }, map{ m }, iValues{ i }
 		{
-			assert(!h.IsControl());
+			assert(!h.IsUserEvent());
 
-			if (h.IsControl() == true)
+			if (h.IsUserEvent() == true)
 				throw std::exception("Cannot obtain active input for control");
+
+			auto it = map.find(h);
+			auto end = map.end();
+
+			if (it != end) {
+				input = it->second.get();
+			}
 
 		}
 
 	};
+
+	inline LayerMatrix* testMode = new LayerMatrix;
+
+
+
+
+
+	inline StateManager testManager;
+
+
+
+
+
 
 
 	class MatrixController
@@ -1045,18 +2221,10 @@ namespace DIMS
 
 		CommandMap dynamicMap;
 
-		CommandMap stateMap;
-
-
-		std::vector<InputMatrix*> stateMatrices;
+		StateMap stateMap;
 
 		//Used the command entry pointer instead
-		std::vector<std::pair<CommandEntryPtr, MatrixMap>> modeMaps;//The last mode is most important.
 
-		MatrixMap* GetMode()
-		{
-			return modeMaps.size() ? std::addressof(modeMaps.back().second) : nullptr;
-		}
 		
 		std::vector<InputCommand*> updateCommands;
 
@@ -1088,6 +2256,111 @@ namespace DIMS
 		//std::set<ActiveCommandPtr> activeCommands;
 
 
+		std::vector<InputMode::Instance*> modeMaps;//The last mode is most important.
+
+		RE::InputContextID context;
+
+
+		void EmplaceMode(InputMode* mode, CommandEntryPtr& command, bool strengthen) 
+		{
+			auto it = modeMaps.begin();
+			auto end = modeMaps.end();
+
+			it = std::find_if(it, end, [&](InputMode::Instance* i) {return i->source == command && i->GetBaseObject() == mode; });
+
+			if (it == end) {
+				auto& config = modeMaps.emplace_back(mode->ObtainContextInstance(k_gameplayContext));
+				config->source = command;
+				config->isStrong = strengthen;
+
+				return;
+			}
+
+			if (strengthen)//This needs to do other things than just declare strength BTW, but this works for now.
+				(*it)->isStrong = true;
+
+		}
+
+		void RemoveMode(LayerMatrix* mode, CommandEntryPtr& command)
+		{
+			auto it = modeMaps.begin();
+			auto end = modeMaps.end();
+
+			it = std::find_if(it, end, [&](InputMode::Instance* i) {return i->source == command && i->GetBaseObject() == mode; });
+
+			if (it != end) {
+				modeMaps.erase(it);
+			}
+		}
+
+		InputMode::Instance* GetCurrentMode()
+		{
+			return modeMaps.size() ? modeMaps.back() : nullptr;
+		}
+
+
+
+
+
+		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input, Input control, MatrixType type)
+		{
+			//Returns if it should be allowed to continue on down the line.
+
+			//std::vector<CommandEntryPtr>& 
+			CommandMap* map;
+			Matrix* matrix = nullptr;
+
+			switch (type)
+			{
+			case MatrixType::Selected:
+
+			default:
+				return true;
+			
+			case MatrixType::State:
+				return stateMap.PrepVisitorList(list, event, input, control);
+
+			case MatrixType::Mode: {
+				InputMode::Instance* mode = GetCurrentMode();
+				if (!mode) {
+					return true;
+				}
+
+				map = &mode->storage;
+				matrix = mode->GetBaseObject();
+
+				break;
+			}
+			case MatrixType::Dynamic:
+				map = &dynamicMap;
+				break;
+			}
+
+			if (!map)
+				return true;
+			
+
+			auto ctrl_it = map->find(control.hash());
+			auto input_it = map->find(input.hash());
+
+			auto end = map->end();
+
+			//change these to AttemptToPull functions.
+			if (ctrl_it != end) {
+				list.push_back(std::ref(ctrl_it->second));
+			}
+
+			if (input_it != end) {
+				list.push_back(std::ref(input_it->second));
+			}
+
+
+			return !matrix || matrix->CanInputPass(event);
+		}
+
+
+
+
 		MatrixController()
 		{
 
@@ -1108,8 +2381,53 @@ namespace DIMS
 				something.push_back(CONCAT(command, __LINE__)); \
 			}
 
+			{
+				testMode->blockedInputs = {
+					Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Sprint"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Sneak"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Shout"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Left Attack/Block"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Right Attack/Block"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Ready Weapon"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Toggle POV"_h },
+					Input { RE::INPUT_DEVICE::kNone, "Activate"_h },
+				};
 
-			
+				testMode->commands.reserve(10);
+				InputCommand* commandA = &testMode->commands.emplace_back();
+				InputCommand* commandB = &testMode->commands.emplace_back();
+				commandA->parent = testMode;
+				commandB->parent = testMode;
+
+				auto& actionA = commandA->actions.emplace_back();
+				actionA.type = ActionType::InvokeFunction;
+				auto& argsA= actionA.args = std::make_unique<Argument[]>(3);
+				argsA[InvokeFunction::FUNCTION_PTR] = KillingMeSlowly;
+				argsA[InvokeFunction::CUST_PARAM_1] = 15.0f;
+
+				auto& triggerA = commandA->triggers.emplace_back();
+				triggerA.priority = 69;
+				triggerA.type = TriggerType::OnControl;
+				triggerA.conflict = ConflictLevel::Defending;
+				triggerA.stageFilter = EventStage::All;
+				triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+
+
+				auto& actionB = commandB->actions.emplace_back();
+				actionB.type = ActionType::InvokeFunction;
+				auto& argsB = actionB.args = std::make_unique<Argument[]>(3);
+				argsB[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_Mode;
+				argsB[InvokeFunction::CUST_PARAM_1] = 11000;
+
+				auto& triggerB = commandB->triggers.emplace_back();
+				triggerB.priority = 10;
+				triggerB.type = TriggerType::OnControl;
+				triggerB.conflict = ConflictLevel::Defending;
+				triggerB.stageFilter = EventStage::StartFinish;
+				triggerB.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+
+			}
 
 
 			InputCommand* command1 = new InputCommand;
@@ -1178,22 +2496,29 @@ namespace DIMS
 
 			InputCommand* command3 = new InputCommand;
 
-			auto& action3 = command3->actions.emplace_back();
-			action3.type = ActionType::InvokeFunction;
-			auto& args3 = action3.args = std::make_unique<Argument[]>(3);
-			args3[InvokeFunction::FUNCTION_PTR] = tmp_say_a_nameNEW;
-			args3[InvokeFunction::CUST_PARAM_1] = 69;
-
+			//auto& action3 = command3->actions.emplace_back();
+			//action3.type = ActionType::InvokeInput;
+			//action3.stageFilter = EventStage::Start;
+			//auto& args3 = action3.args = std::make_unique<Argument[]>(1);
+			//args3[InvokeInput::VIRTUAL_INPUT] = Input{ RE::INPUT_DEVICE::kKeyboard, 2 };
+			
+			auto& action3b = command3->actions.emplace_back();
+			action3b.type = ActionType::InvokeFunction;
+			auto& args3b = action3b.args = std::make_unique<Argument[]>(3);
+			args3b[InvokeFunction::FUNCTION_PTR] = KillingMeSlowly;
+			args3b[InvokeFunction::CUST_PARAM_1] = 15.0f;
+			
 			auto& trigger3 = command3->triggers.emplace_back();
 			trigger3.priority = 69;
 			trigger3.type = TriggerType::OnControl;
 			trigger3.conflict = ConflictLevel::Defending;
-			trigger3.stageFilter = EventStage::Start;
+			trigger3.stageFilter = EventStage::All;
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
 			trigger3.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
 			
 			command3->name = "Silent 69";
+
 
 			InputCommand* command4 = new InputCommand;
 
@@ -1207,15 +2532,53 @@ namespace DIMS
 			auto& trigger4 = command4->triggers.emplace_back();
 			trigger4.priority = 10;
 			trigger4.type = TriggerType::OnControl;
-			trigger4.conflict = ConflictLevel::Guarding;
+			//trigger4.type = TriggerType::OnButton;
+			trigger4.conflict = ConflictLevel::Defending;
 			trigger4.stageFilter = EventStage::StartFinish;
 			trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
 			trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
+			//trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnButton::BUTTON_ID] = Input{ RE::INPUT_DEVICE::kMouse, 0 };
+			//trigger4.args.emplace_back(std::make_unique<Argument[]>(1))[OnButton::BUTTON_ID] = Input{ RE::INPUT_DEVICE::kMouse, 1 };
 
 
 
-			std::vector<InputCommand*> something{ command1, command2, command3, command4, command5, command6 };
+			InputCommand* command7 = new InputCommand;
 
+
+			auto& action7 = command7->actions.emplace_back();
+			action7.type = ActionType::InvokeFunction;
+			auto& args7 = action7.args = std::make_unique<Argument[]>(3);
+			args7[InvokeFunction::FUNCTION_PTR] = ChangeMeSlowly;
+			args7[InvokeFunction::CUST_PARAM_1] = 10;
+
+			auto& trigger7 = command7->triggers.emplace_back();
+			trigger7.priority = 10;
+			//trigger7.type = TriggerType::OnMouseMove;
+			trigger7.type = TriggerType::OnAxis;
+			trigger7.conflict = ConflictLevel::Defending;
+			trigger7.stageFilter = EventStage::All;
+			//Needs no arguments, can really only activate here.
+			trigger7.args.emplace_back(std::make_unique<Argument[]>(1))[OnAxis::AXIS_ID] = "Move";
+
+			std::vector<InputCommand*> something{ command1, command2, command3, command4, command5, command6, command7 };
+
+
+
+
+			InputCommand* command1554 = new InputCommand; {
+				auto& action1554 = command1554->actions.emplace_back(); 
+				action1554.type = ActionType::InvokeMode;
+				auto& args1554 = action1554.args = std::make_unique<Argument[]>(1); 
+				args1554[InvokeMode::MODE_PTR] = testMode;
+				auto& trigger1554 = command1554->triggers.emplace_back(); 
+				trigger1554.priority = 20; 
+				trigger1554.type = TriggerType::OnControl; 
+				trigger1554.conflict = ConflictLevel::Blocking; 
+				trigger1554.stageFilter = EventStage::StartFinish;
+				trigger1554.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Right Attack/Block";
+				trigger1554.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+				something.push_back(command1554);
+			};
 
 
 
@@ -1228,7 +2591,7 @@ namespace DIMS
 			{
 				for (auto& trigger : command->triggers)
 				{
-					auto entry = std::make_shared<CommandEntry>(command, &trigger, trigger.IsControlTrigger());
+					auto entry = std::make_shared<CommandEntry>(command, &trigger);
 
 					for (auto input : trigger.GetInputs())
 					{
@@ -1245,7 +2608,6 @@ namespace DIMS
 
 			}
 
-
 			//dynamicMap[Input{ RE::INPUT_DEVICE::kMouse, 0 }].emplace;
 			//dynamicMap[Input{ RE::INPUT_DEVICE::kMouse, 1 }] = {};
 		}
@@ -1253,7 +2615,7 @@ namespace DIMS
 
 		ActiveInput& ObtainActiveInput(Input input)
 		{
-			if (input.IsControl() == true)
+			if (input.IsUserEvent() == true)
 				throw std::exception("Cannot obtain active input for control");
 
 			auto& ptr = activeMap[input];
@@ -1267,7 +2629,7 @@ namespace DIMS
 		//Takes input because it is genuinely easier to do it like this.
 		bool ClearActiveInput(Input input)
 		{
-			if (input.IsControl() == true)
+			if (input.IsUserEvent() == true)
 				throw std::exception("Cannot obtain active input for control");
 			
 			//Later, this will very likely stick around and clear itself instead. For now, this works.
@@ -1303,10 +2665,8 @@ namespace DIMS
 			return delayList.size();
 		}
 
-		void CheckRelease(InputInterface& event, Input input)
+		void CheckRelease(RE::PlayerControls* controls, InputInterface& event, Input input)
 		{
-			std::unique_ptr<RE::InputEvent> dump;//This concept doesn't currently work, so I'm not really giving it any credit.
-
 			auto it = activeMap.begin();
 			auto end = activeMap.end();
 			it = activeMap.find(input);
@@ -1332,7 +2692,7 @@ namespace DIMS
 			//Incrementing and decrementing static time will allow this to not interfer with later entries.
 			CommandEntry::IncStaticTimestamp();
 
-			HandleEvent(event, dump);
+			HandleEvent(controls, event);
 
 			CommandEntry::DecStaticTimestamp();
 
@@ -1340,7 +2700,36 @@ namespace DIMS
 		}
 
 
-		bool HandleEvent(InputInterface event, std::unique_ptr<RE::InputEvent>& out)
+
+		bool IsLayerBlocked(std::array<ActiveCommand*, EventStage::Total> blocks, ActiveCommand& other, EventStage stages)
+		{
+			//Ease of use function so I don't have to search for the active command every time
+
+			if (stages)
+			{
+				for (auto x = 1, y = 0; x < EventStage::Total; x <<= 1, y++)
+				{
+					auto block = blocks[y];
+
+					if (!block)
+						continue;
+
+					if (stages & x && 
+						block != &other && 
+						block->entry->command->CompareOrder(other->command)._Value >= std::strong_ordering::equal._Value
+						//blocks[y]->entry->GetParentType() <= other->GetParentType()
+						) {
+						return true;
+					}
+
+				}
+			}
+			return false;
+		}
+
+
+
+		bool HandleEvent(RE::PlayerControls* controls, InputInterface event)
 		{
 			//HandleEvent is basically the core driving function. It takes the player controls, and the given input event, as well as an
 			// InputEvent that is mutated to be refired.
@@ -1356,40 +2745,23 @@ namespace DIMS
 				return true;
 
 
+			Input input = Input::CreateInput(event);
+			Input control = Input::CreateUserEvent(event);
 
-			bool allow_execute = true;
-
-			Input input{ event };
-
+			//This isn't good to use, stop using it.
 			if (stage == EventStage::Start) {
-				CheckRelease(event, input);
+				CheckRelease(controls, event, input);
 			}
+
 
 
 			ActiveInputHandle active_input{ input, activeMap, event.GetEventValues() };
 
-			//So what's the order to do?
 
-			//StatePremode
-			//Mode
-			//StatePostmode
-			//Dynamic
+			bool allow_execute = true;
 
 
-			auto ctrl_entry = dynamicMap.find(Input::CONTROL);
-			auto inp_entry = dynamicMap.find(input.hash());
-
-			auto d_end = dynamicMap.end();
-
-			detail::VisitorList list;
-
-			if (ctrl_entry != d_end){
-				list.push_back(std::ref(ctrl_entry->second));
-			}
-
-			if (inp_entry != d_end) {
-				list.push_back(std::ref(inp_entry->second));
-			}
+			
 
 			EventFlag flags = EventFlag::None;
 
@@ -1400,152 +2772,227 @@ namespace DIMS
 
 			size_t hash = 0;//starts as zero so it will always need to load the first time.
 
-			//I don't remember why, but I think it was best to do this.
-			// I remember why, it's because only the stuff in active input is actually fired. When a multiple stage command, or a 
-			// single stage blocking command finds itself in the active input it simply puts itself into the call list.
-			// non trigger blocking single stage stuff will add itself so long as there's no blocking.
-			//Actually, fuck the list. 
-			//std::vector<CommandEntry*> call_list;
+			bool execute_basic = true;
 
-			std::vector<CommandEntryPtr> after_list;
 
-			//I think I should perhaps redo this bit. I think I would ONLY ever need this to retrieve viable options.
-
-			VisitLists([&](CommandEntryPtr entry, bool& should_continue)
+			if (stage == EventStage::Start)
 			{
-				EntryIndexCleaner cleaner{ entry };//This cleaner increments when it dies.
-				
-				if (entry->CanHandleEvent(event))
+				detail::VisitorList list;
+
+				for (MatrixType i = (MatrixType)0; i < MatrixType::Total; i++) 
 				{
-					
-
-					bool result = true;
-
-					//TODO: asking for the id in emplacement might not be necessary, or continuing past emplacement.
-					ActiveCommand::ID id = 0;
-
-					//If it has multiple stages, blocks multiple actions.
-					// I feel this may need to be added even if it doesn't block triggers. Mainly because I'm unsure if there's a system to spot block
-					//
-					if (entry->HasMultipleBlockStages() || entry->ShouldBlockTriggers() || entry->HasFinishStage())
-					{
-						if (active_input->EmplaceCommand(entry, stage, id) == false) {
-							return;
-						}
-					}
-					else if (entry->GetTriggerFilter() & stage) {
-						after_list.push_back(entry);
+					if (PrepVisitorList(list, event.event, input, control, i) == false) {
+						//If one of these blocks further inputs, it needs an active command as a reminder.
+						active_input->SetBasicFailure();
+						break;
 					}
 				}
 
+				
+				VisitLists([&](CommandEntryPtr entry, bool& should_continue)
+				{
+					if (entry->GetRealInputRef() > 1) {
+						entry->IsActive();
+					}
 
+					if (!entry->IsActive() && entry->IsEnabled() && entry->CanHandleEvent(event) == true) {
+						active_input->MakeCommand(entry, stage);
+					}
 
-			}, list);
-			
-
-			auto it = after_list.begin();
-			auto end = after_list.end();
+				}, list);
+			}
+			else if (active_input)
+			{
+				active_input->Update(stage);
+			}
 
 
 			if (active_input)
 			{
-				//TODO: I just realized these don't really account for if they are supposed to be blocked.
+				std::array<ActiveCommand*, EventStage::Total> blocks = active_input->GetAllBlockCommands();
 
-				auto mid_function = [&](ActiveCommand* act)
+
+				active_input->VisitActiveCommands([&](ActiveCommand& act)
+				{
+
+					act.SetEarlyExit(false);
+
+
+					//For merely being present, regardless if it's blocked or not, it will prevent the original from going off.
+					// Guarding and defending are the same thing here, btw. They shouldn't be seperate.
+					if (act->ShouldBlockNative() == true)
+						active_input->SetBasicFailure();
+					
+						
 					{
-						while (it != end) {
 
-							if (act && it->get()->priority() <= act->entry->priority())
-								break;
+						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+						// computing needed to process things that will never come into success.
+
+						auto trigger_stages = act->GetTriggerFilter();
+
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, trigger_stages) == false)
+						{
+							bool executed = false;
+
+							for (EventStage i = act.HasWaited() ? EventStage::Start : stage; i <= stage; i <<= 1)
+							{
+								if (trigger_stages & i)
+								{
+									if (i == EventStage::Finish && act->GetSuccess() > 1) {
+										//We'll want to let input go but not fire the action.
+										logger::info("Retaining at success level {}", act->GetSuccess());
+										break;
+									}
 
 
-							//I'm just going to boiler plate this cause I'm fucking lazy
-							//Also, testing this one out, no more check functions on stage blocking, updates will not be happening so best to do it here.
+									
+									//if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false)
+									{
+										//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
-							auto& entry = *(it++);
+										EventData data{ this, act.entry, &active_input->data, event, i };
 
-
-
-							if (!active_input->IsStageBlockedHashed(block_, hash, 0, stage) || entry->ShouldBeBlocked() == false) {
-								//if (!block_ || entry->ShouldBeBlocked() == false) {
-
-								EventData data{ this, nullptr, event, stage };
-
-								if (!entry->Execute(data, flags)) {
-									//This should do something, but currently I'm unsure what exactly.
-									//allow_execute
+										act.entry->RepeatExecute(data, flags, executed);
+									}
 								}
 							}
 						}
-					};
+						act.ClearWaiting();
+					}
 
-				//I just want to say, this set up is literally fucking unhinged and I shold be ashamed of it.
-				active_input->VisitActiveCommands([&](ActiveCommand& act)
+
+
+				});
+
+				if (active_input->IsBasicRunning() == false)
+				{
+					execute_basic = false;
+					active_input->SetRedoStage(stage);
+				}
+				else if (auto redo = active_input->GetRedoStages(); redo) {
+					auto pair = active_input->GetInputValues();
+					auto backup = pair;
+					
+					for (EventStage i = EventStage::Start; i < EventStage::Last; i <<= 1)
 					{
-						bool waited = act.HasWaited();
+						if (redo & i && i != stage)
+						{
+							if (i == EventStage::Start) {
+								backup = event.GetEventValues();
+								event.SetEventValues(pair.first, pair.second);
+							}
 
-						if (act.stages & stage || waited) {// if it's waited, maybe perform some of the previous.
 
-							mid_function(&act);
+							ExecuteInput(controls, event);
+							
+							if (i == EventStage::Start) {
+								event.SetEventValues(backup.first, backup.second);
+							}
+						}
+					}
+
+					active_input->ClearRedoStages();
+				}
+
+			}
+
+
+			if (stage == EventStage::Finish) {
+				ClearActiveInput(input);
+			}
+
+			return execute_basic;
+		}
+
+		void ReleaseInput(RE::PlayerControls* a_controls, decltype(activeMap)::iterator& it)
+		{
+
+			VirtualEvent virtual_input;
+
+			//InputInterface event{ button.get(), a_controls };
+			InputInterface event{ &virtual_input };
+
+
+			bool purge = true;
+
+			auto dump = it->first;
+			auto& active = it->second;
+
+			EventFlag flags = EventFlag::None;
+
+			Input input = dump;
+
+			virtual_input.device = input.device;
+			virtual_input.heldDownSecs = active->data.SecondsHeld();
+
+			//button->device = input.device;
+			//button->heldDownSecs = active->data.SecondsHeld();
+
+			auto blocks = active->GetAllBlockCommands();
+
+			active->VisitActiveCommands([&](ActiveCommand& act)
+				{
+					if (act->GetTriggerFilter() & EventStage::Finish)
+					{
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
+						{
+							//if (act.stages & EventStage::Finish) {
+							if (act->HasVisitedStage(EventStage::Finish) == true) {
+								//This already processed a finish, no need.
+								return;
+							}
+
+
+							if (act.HasEarlyExit() == false) {
+								purge = false;
+								return;
+							}
+
+
+
+							//TODO: A genuine input check would be better here, because successes may not have registered yet.
+							//This seems to work, but have an issue where it only works if one is removed, then the other.
+
+							if (act->GetSuccess() > 1) {
+								//We'll want to let input go but not fire the action.
+								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+								return;
+							}
+							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
 
 
 							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
 							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
 							// computing needed to process things that will never come into success.
 
-							auto trigger_stages = act->GetTriggerFilter();
-
-							bool executed = false;
-
-							for (EventStage i = waited ? EventStage::Start : stage; i <= stage; i <<= 1)
+							//if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) 
 							{
-								if (trigger_stages & i)
-								{
-									act.stages |= i;
+								//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
+								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
 
-									if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false) {
-										//if (!block_ || act.entry->ShouldBeBlocked() == false) {
-
-										EventData data{ this, nullptr, event, i };
-										
-										act.entry->RepeatExecute(data, flags, executed);
-									}
+								if (!act.entry->Execute(data, flags)) {
+									//This should do something, but currently I'm unsure what exactly.
+									//allow_execute
 								}
 							}
-
-							if (stage == EventStage::Finish && act->IsStageInTrigger(EventStage::Finish))
-								assert(act.stages & EventStage::Finish);
-
-							act.ClearWaiting();
 						}
+					}
+				});
 
 
-
-					});
-
-				mid_function(nullptr);
+			if (!purge || ClearActiveInput(it) == false) {
+				++it;
 			}
-			//Do the actual thing here.
-
-
-
-			bool result = (!active_input || !active_input->IsStageBlocked(stage, false)) || (flags & EventFlag::Continue);
-
-			if (stage == EventStage::Finish) {
-				ClearActiveInput(input);
-			}
-
-			return result;
-
-
-			return allow_execute || (flags & EventFlag::Continue);
 		}
 
 		void HandleRelease(RE::PlayerControls* a_controls)
 		{
 			//Emplaces can be handled here. Please handle them.
 			
+			//TODO: HandleRelease has a small issue in that when it happens it happens regardless if it's actually been updated or not.
 
 			bool block_;
 
@@ -1553,14 +3000,21 @@ namespace DIMS
 
 			std::unique_ptr<RE::ButtonEvent> button{ RE::ButtonEvent::Create(RE::INPUT_DEVICES::kNone, "", 0, 0, 0) };
 
-			InputInterface event{ button.get(), a_controls };
+			VirtualEvent virtual_input;
+
+			//InputInterface event{ button.get(), a_controls };
+			InputInterface event{ &virtual_input };
 
 
 			//PLEASE note, delay event refiring cannot happen here as proper, because emplace command is not happening. So, 
 			// I need to divide that function in such a way that I can use it's components.
 
-			//*
 			for (auto it = activeMap.begin(); it != activeMap.end(); ) {
+				ReleaseInput(a_controls, it);
+				continue;
+				
+				bool purge = true;
+				
 				auto dump = it->first;
 				auto& active = it->second;
 				
@@ -1568,72 +3022,1167 @@ namespace DIMS
 
 				Input input = dump;
 
-				button->device = input.device;
-				button->heldDownSecs = active->data.SecondsHeld();
+				virtual_input.device = input.device;
+				virtual_input.heldDownSecs = active->data.SecondsHeld();
+
+				//button->device = input.device;
+				//button->heldDownSecs = active->data.SecondsHeld();
+
+				auto blocks = active->GetAllBlockCommands();
 
 				active->VisitActiveCommands([&](ActiveCommand& act)
 				{
 					if (act->GetTriggerFilter() & EventStage::Finish)
 					{
-						if (act.stages & EventStage::Finish) {
-							//This already processed a finish, no need.
-							return;
-						}
-						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
-						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
-						// computing needed to process things that will never come into success.
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
+						{
+							//if (act.stages & EventStage::Finish) {
+							if (act->HasVisitedStage(EventStage::Finish) == true) {
+								//This already processed a finish, no need.
+								return;
+							}
 
-						if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) {
-							//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
-							EventData data{ this, nullptr, event, EventStage::Finish };
+							if (act.HasEarlyExit() == false) {
+								purge = false;
+								return;
+							}
 
-							if (!act.entry->Execute(data, flags)) {
-								//This should do something, but currently I'm unsure what exactly.
-								//allow_execute
+
+
+							//TODO: A genuine input check would be better here, because successes may not have registered yet.
+							//This seems to work, but have an issue where it only works if one is removed, then the other.
+
+							if (act->GetSuccess() > 1) {
+								//We'll want to let input go but not fire the action.
+								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+								return;
+							}
+							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+
+
+							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+							// computing needed to process things that will never come into success.
+
+							//if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) 
+							{
+								//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+
+								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
+
+								if (!act.entry->Execute(data, flags)) {
+									//This should do something, but currently I'm unsure what exactly.
+									//allow_execute
+								}
 							}
 						}
 					}
 				});
 
 				
-				if (ClearActiveInput(it) == false) {
+				if (!purge || ClearActiveInput(it) == false) {
 					++it;
 				}
 			}
-			//*/
-			
-
-			return;
-			for (auto& [dump, active] : activeMap)
-			{
-
-				
-
-
-				//ClearActiveInput
-
-
-
-				//How do we do this exactly? call InputInterface?
-
-				//We could have an easy store of every device as well as every input or something like that. Soooo, active input.
-
-				//From there, we have a function that we fire off that basically updates every control that we currently have,
-				// we input stuff for controls the whole shebang and fire it off.
-				
-
-				//So basically it will be up to each ActiveInput to help resolve. But unlike skyrim we cant just leave because we don't have all
-				// active stuff loaded.
-
-				//HOWEVER, a good resolve for that might just be allowing for things to be added even if it isn't it's time. This might be prefered.
-				// the rule about the first stage must then change to "If the stage given is later than the first stage".
-			}
-
-			//An emergency release.
 		}
+
+		void QueueRelease()
+		{
+			//*
+			for (auto it = activeMap.begin(); it != activeMap.end(); it++) {
+			
+				Input input = it->first;
+				auto& active = it->second;
+
+				active->VisitActiveCommands([&](ActiveCommand& act)
+				{
+					//This actually needs to work for the individual active entry.
+
+					//For each entry active, try to mark it for release.
+					
+					//act->ResetExecute();
+					act.SetEarlyExit(true);
+				});
+			}
+			//*/
+		}
+
+
+
+		void QueueAxisRelease()
+		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
+
+			auto control_map = RE::ControlMap::GetSingleton();
+
+			//I just remembered, we don't actually care about the control, it's the input we're trying to clear.
+			constexpr Input axisInputs[]{
+				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
+				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
+				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
+			};
+			
+			for (auto input : axisInputs)
+			{
+				auto end = activeMap.end();
+				auto it = activeMap.find(input);
+
+				if (it == end)
+					continue;
+
+				auto& active = it->second;
+
+				active->VisitActiveCommands([&](ActiveCommand& act)
+					{
+						//This actually needs to work for the individual active entry.
+
+						//For each entry active, try to mark it for release.
+
+						//act->ResetExecute();
+						act.SetEarlyExit(true);
+					});
+			}
+		}
+
+		void ReleaseAxis(RE::PlayerControls* a_controls)
+		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
+
+			//TODO: Generalize this pls
+			constexpr Input axisInputs[]{
+				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
+				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
+				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
+			};
+
+			for (auto input : axisInputs)
+			{
+				auto end = activeMap.end();
+				auto it = activeMap.find(input);
+
+				if (it == end)
+					continue;
+
+				ReleaseInput(a_controls, it);
+			}
+		}
+
+
+		//The axis release version of Handle Release should have a "ReleaseInput" function, it should use the iterator to do it's business. Also being
+		// able to push it.
+
 	};
+	
 
 	inline MatrixController* testController = new MatrixController;
-	inline std::array<MatrixController*, (int)ControlType::Total> Controllers;
+	inline std::array<MatrixController*, (int)RE::InputContextID::kTotal> Controllers;
+
+
+	inline void LoadTestManager()
+	{
+		auto isCrouched = [](RE::PlayerCharacter* player)
+			{
+				return player->AsActorState()->IsSneaking();
+			};
+
+		auto isArmed = [](RE::PlayerCharacter* player)
+			{
+				return player->AsActorState()->IsWeaponDrawn();
+			};
+
+		//Armed is a bit jank because of the disonance between the events I'm using and the actual states being queried
+		auto armedEvent1 = RefreshEvent{ RefreshCode::GraphOutputEvent, "WeapEquip_Out"_ih };
+		auto armedEvent2 = RefreshEvent{ RefreshCode::GraphOutputEvent, "Unequip_Out"_ih };
+
+		
+		
+		auto crouchEvent1 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailSneakIdle"_ih };
+		auto crouchEvent2 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailSneakLocomotion"_ih };
+		auto crouchEvent3 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailMTIdle"_ih };
+		auto crouchEvent4 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailMTLocomotion"_ih };
+		auto crouchEvent5 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailCombatIdle"_ih };
+		auto crouchEvent6 = RefreshEvent{ RefreshCode::GraphOutputEvent, "tailCombatLocomotion"_ih };
+		
+
+		auto stateArmed = testManager.CreateState();
+		{
+			stateArmed->refreshEvents = {
+				armedEvent1,
+				armedEvent2,
+			};
+
+			stateArmed->condition = isArmed;
+			stateArmed->debugName = "Armed";
+			stateArmed->_priority = 27;
+			stateArmed->level = StateLevel::Smother;
+			stateArmed->blockedInputs = {
+					Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
+			};
+
+			stateArmed->commands.reserve(10);
+
+
+			/*
+			
+			InputCommand* commandA = &stateArmed->commands.emplace_back();
+			commandA->parent = stateArmed;
+
+			auto& actionA = commandA->actions.emplace_back();
+			actionA.type = ActionType::InvokeFunction;
+			auto& argsA = actionA.args = std::make_unique<Argument[]>(3);
+			argsA[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsA[InvokeFunction::CUST_PARAM_1] = 26;
+
+			auto& triggerA = commandA->triggers.emplace_back();
+			triggerA.priority = 26;
+			triggerA.type = TriggerType::OnControl;
+			triggerA.conflict = ConflictLevel::Defending;
+			triggerA.stageFilter = EventStage::Start;
+			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+			//*/
+
+
+			InputCommand* commandB = &stateArmed->commands.emplace_back();
+
+			commandB->parent = stateArmed;
+
+			auto& actionB = commandB->actions.emplace_back();
+			actionB.type = ActionType::InvokeFunction;
+			auto& argsB = actionB.args = std::make_unique<Argument[]>(3);
+			argsB[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsB[InvokeFunction::CUST_PARAM_1] = 16;
+
+			auto& triggerB = commandB->triggers.emplace_back();
+			triggerB.priority = 16;
+			triggerB.type = TriggerType::OnControl;
+			triggerB.conflict = ConflictLevel::Blocking;
+			triggerB.stageFilter = EventStage::Start;
+			triggerB.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+
+
+		}
+
+
+		auto stateCrouch = testManager.CreateState();
+		{
+			stateCrouch->refreshEvents = {
+				crouchEvent1,
+				crouchEvent2,
+				crouchEvent3,
+				crouchEvent4,
+				crouchEvent5,
+				crouchEvent6,
+			};
+
+			stateCrouch->condition = isCrouched;
+			stateCrouch->debugName = "Crouching";
+			stateCrouch->_priority = 26;
+			stateCrouch->blockedInputs;
+			stateCrouch->blockedInputs = {
+					Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
+			};
+
+			stateCrouch->commands.reserve(10);
+
+			InputCommand* commandA = &stateCrouch->commands.emplace_back();
+			commandA->parent = stateCrouch;
+
+
+
+			auto& actionA = commandA->actions.emplace_back();
+			actionA.type = ActionType::InvokeFunction;
+			auto& argsA = actionA.args = std::make_unique<Argument[]>(3);
+			argsA[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsA[InvokeFunction::CUST_PARAM_1] = 26;
+
+			auto& triggerA = commandA->triggers.emplace_back();
+			triggerA.priority = 26;
+			triggerA.type = TriggerType::OnControl;
+			triggerA.conflict = ConflictLevel::Defending;
+			triggerA.stageFilter = EventStage::Start;
+			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "TEST_B";
+
+			InputCommand* commandB = &stateCrouch->commands.emplace_back();
+			
+			commandB->parent = stateCrouch;
+
+
+
+			auto& actionB = commandB->actions.emplace_back();
+			actionB.type = ActionType::InvokeFunction;
+			auto& argsB = actionB.args = std::make_unique<Argument[]>(3);
+			argsB[InvokeFunction::FUNCTION_PTR] = tmp_say_a_nameNEW;
+			argsB[InvokeFunction::CUST_PARAM_1] = 18;
+
+			auto& triggerB = commandB->triggers.emplace_back();
+			triggerB.priority = 18;
+			triggerB.type = TriggerType::OnControl;
+			triggerB.conflict = ConflictLevel::Blocking;
+			triggerB.stageFilter = EventStage::Start;
+			triggerB.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+		}
+
+		InputState* stateArmedAndCrouching = testManager.CreateState({ stateArmed, stateCrouch });
+		if (stateArmedAndCrouching)
+		{
+
+
+			stateArmedAndCrouching->condition = nullptr;
+			stateArmedAndCrouching->debugName = "ArmedAndDangerous";
+			stateArmedAndCrouching->_priority = 27;
+			stateArmedAndCrouching->level = StateLevel::Merge;
+			//stateArmedAndCrouching->blockedInputs = {
+			//		Input { RE::INPUT_DEVICE::kNone, "Jump"_h },
+			//};
+
+			stateArmedAndCrouching->commands.reserve(10);
+
+			//InputCommand* commandA = &stateArmedAndCrouching->commands.emplace_back();
+			//InputCommand* commandB = &stateCrouch->commands.emplace_back();
+
+
+			/*
+			
+			commandA->parent = stateArmedAndCrouching;
+
+			auto& actionA = commandA->actions.emplace_back();
+			actionA.type = ActionType::InvokeFunction;
+			auto& argsA = actionA.args = std::make_unique<Argument[]>(3);
+			argsA[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsA[InvokeFunction::CUST_PARAM_1] = 26;
+
+			auto& triggerA = commandA->triggers.emplace_back();
+			triggerA.priority = 26;
+			triggerA.type = TriggerType::OnControl;
+			triggerA.conflict = ConflictLevel::Defending;
+			triggerA.stageFilter = EventStage::Start;
+			triggerA.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Jump";
+			//*/
+
+
+			InputCommand* commandB = &stateArmedAndCrouching->commands.emplace_back();
+
+
+			commandB->parent = stateArmedAndCrouching;
+
+			auto& actionB = commandB->actions.emplace_back();
+			actionB.type = ActionType::InvokeFunction;
+			auto& argsB = actionB.args = std::make_unique<Argument[]>(3);
+			argsB[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+			argsB[InvokeFunction::CUST_PARAM_1] = 14;
+
+			auto& triggerB = commandB->triggers.emplace_back();
+			triggerB.priority = 14;
+			triggerB.type = TriggerType::OnControl;
+			triggerB.conflict = ConflictLevel::Defending;
+			triggerB.stageFilter = EventStage::Start;
+			triggerB.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+		}
+
+
+		testController->stateMap = testManager.CreateMap();
+	}
+
+
+
+
+	namespace IMV2
+	{
+		using CommandMap = std::unordered_map<Input::Hash, std::vector<std::shared_ptr<CommandEntry>>>;
+
+
+		
+
+		struct Matrix
+		{
+			struct Instance
+			{
+				virtual ~Instance() = default;
+
+				Matrix* base = nullptr;
+
+				RE::InputContextID context = RE::InputContextID::kNone;
+
+				CommandMap storage;
+
+				//Utilize covariance with this
+				Matrix* GetBaseObject()
+				{
+					return base;
+				}
+				const Matrix* GetBaseObject() const
+				{
+					return base;
+				}
+
+				//Ensure that an IMatrix makes this.
+			};
+			using InstancePtr = std::unique_ptr<Instance>;
+
+
+
+
+			virtual ~Matrix() = default;
+
+
+
+			virtual bool CanInputPass(RE::InputEvent* event) const
+			{
+				return true;
+			}
+
+
+			virtual MatrixType GetMatrixType() const = 0;
+
+
+			//This can be overriden with a custom entry, such as for states.
+			virtual Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) = 0;
+			
+			virtual void DestroyInstance(RE::InputContextID context) = 0;
+
+
+			virtual std::strong_ordering CompareOrder(const Matrix* other) const
+			{
+				return std::strong_ordering::equal;
+			}
+
+
+			virtual CommandMap CreateMap() = 0;
+
+
+			template <class Self>
+			auto ObtainContextInstance(this Self&& a_this, RE::InputContextID context)// -> Self::Instance*
+			{
+				using Thing = std::remove_pointer_t<std::remove_cvref_t<Self>>::Instance;
+				return static_cast<Thing*>(a_this.GetContextInstance(context, true));
+			}
+			
+			//Instance* ObtainContextInstance(RE::InputContextID context)
+			//{
+			//	return GetContextInstance(context, true);
+			//}
+		};
+
+
+		struct InputMatrix : public Matrix
+		{
+
+			std::map<RE::InputContextID, InstancePtr> entries;
+
+			std::vector<InputCommand> commands;//Once this is finalized, this cannot have it's values changed. so it should be private.
+
+			MatrixType type = MatrixType::Total;
+
+
+
+			
+		protected:
+			
+
+			template<std::derived_from<Instance> IType>
+			IType* LoadInstance(RE::InputContextID context, bool create_if_required = false)
+			{
+				//The idea with this is making a setup where the item pocket, and the thing gotten are one in the same.
+				auto& slot = entries[context];
+
+				if (create_if_required && !slot) {
+					slot = std::make_unique<IType>();
+					slot->base = this;
+					slot->context = context;
+					slot->storage = CreateMap();
+					//TODO: Need to make context right here.
+				}
+
+				return static_cast<IType*>(slot.get());
+			}
+		public:
+
+			Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+			{
+				return LoadInstance<Instance>(context, create_if_required);
+			}
+
+			void DestroyInstance(RE::InputContextID context) override
+			{
+				entries.erase(context);
+			}
+
+			MatrixType GetMatrixType() const override
+			{
+				return type;
+			}
+
+
+			MatrixType FetchMatrixType() const
+			{
+				return this ? GetMatrixType() : MatrixType::Dynamic;
+			}
+
+			CommandMap CreateMap() override
+			{
+				CommandMap map;
+
+				for (auto& command : commands)
+				{
+					for (auto& trigger : command.triggers)
+					{
+						CommandEntryPtr entry = std::make_shared<CommandEntry>(&command, &trigger);
+
+						for (auto input : trigger.GetInputs())
+						{
+							auto& list = map[input];
+
+							list.insert(std::upper_bound(list.begin(), list.end(), entry, [](const std::shared_ptr<CommandEntry>& lhs, const std::shared_ptr<CommandEntry>& rhs)
+								{return lhs->priority() > rhs->priority(); }),
+								entry);
+						}
+					}
+				}
+
+				return map;
+			}
+
+		};
+
+
+
+		struct LayerMatrix : public InputMatrix
+		{
+			//Blocked user events are stored as device less id codes.
+			std::set<Input> blockedInputs;
+
+			//I would like some extra settings for this. If you have a device that has -1 it means that device is entirely disabled.
+			// if you have one that has a none device and is fully negative that means ALL controls are prevented from passing through.
+			// Selected will do this sometimes, fully preventing passing through to completely reinvent the bindings.
+
+			bool CanInputPass(RE::InputEvent* event) const override
+			{
+				auto& event_name = event->QUserEvent();
+				Input input = event;
+
+				Input userEvent{ RE::INPUT_DEVICE::kNone, Hash(event_name.c_str(), event_name.length()) };
+
+				return !blockedInputs.contains(input) && !blockedInputs.contains(userEvent);
+			}
+		};
+
+
+
+
+
+
+
+
+		struct InputState : public LayerMatrix
+		{
+			struct Instance : public LayerMatrix::Instance
+			{
+			public:
+				
+
+				InputState* GetBaseObject()
+				{
+					return static_cast<DIMS::IMV2::InputState*>(__super::GetBaseObject());
+				}
+				const InputState* GetBaseObject() const
+				{
+					return static_cast<const DIMS::IMV2::InputState*>(__super::GetBaseObject());
+				}
+
+
+				auto priority() const
+				{
+					return  GetBaseObject()->_priority;
+				}
+
+
+				auto level() const
+				{
+					return GetBaseObject()->level;
+				}
+
+
+				bool IsInConflict(Instance* other) const
+				{
+					return GetBaseObject()->IsInConflict(other->GetBaseObject());
+				}
+
+
+				void SetInputEnabled(Input input, bool value)
+				{
+
+					auto it = storage.find(input.hash());
+
+					auto end = storage.end();
+
+					if (it == end) {
+						return;
+					}
+
+					for (auto& entry : it->second)
+					{
+						entry->SetEnabled(value);
+					}
+
+					for (auto parent : GetBaseObject()->parents)
+					{
+						parent->ObtainContextInstance(context)->SetInputEnabled(input, value);
+					}
+				}
+
+				//This is called on all activeStates at the end of a successful update.
+				void SetAllInputsEnabled(bool value = true)
+				{
+					for (auto& [key, lists] : storage)
+					{
+						for (auto& entry : lists)
+						{
+							entry->SetEnabled(value);
+						}
+
+					}
+
+					for (auto parent : GetBaseObject()->parents)
+					{
+						parent->ObtainContextInstance(context)->SetAllInputsEnabled(value);
+					}
+				}
+
+				bool CanInputPass(RE::InputEvent* event) const
+				{
+					return GetBaseObject()->CanInputPass(event);
+				}
+
+				bool DerivesFrom(Instance* other)
+				{
+					if (!other)
+						return false;
+
+					return GetBaseObject()->DerivesFrom(other->GetBaseObject());
+
+				}
+
+
+				std::vector<Instance*> GetViableStates(RefreshCode code, double data1, double data2, std::span<Instance*>& limit, InputState*& winner, bool& change, bool inner_change = false)
+				{
+					//TODO: GetViableStates needs to be changed pretty badly. It should only add "this" if it experiences complete success with it's parents.
+					// or if it lacks parents. Basically, it must maintain the expectations of it's previous as well. That, or it must exist in the limit list.
+
+
+					//It should be noted that having activated this frame is not grounds for 
+
+					RefreshCode k_fakeUpdateCode = RefreshCode::Update;
+					RefreshCode k_fakeExpectedCode = RefreshCode::Update;
+
+					Instance* self = nullptr;
+
+					auto end = limit.end();
+					bool in_previous = std::find(limit.begin(), end, this) != end;
+
+					if (!inner_change && GetBaseObject()->CheckEvent(code, data1, data2) == false) {
+						//Given update either isn't within here or doesn't match parameters.
+
+						//If it's not within the expected update but it's currently active, it will just put it in there.
+						// I may actually just make a setting for this specifically to make it faster. For now, this will work.
+
+
+						if (in_previous) {
+							self = this;
+						}
+						else
+							return {};
+					}
+					//The rule is that the states in question must remain above
+					else {
+
+						//What this actually should want to do is check the parents before checking itself so if it fails its children it doesn't take place.
+						// But that won't be needed for a while even if this isn't a very smart way of doing this.
+						if (GetBaseObject()->tmpCheckParentCondition() == true && GetBaseObject()->tmpCheckCondition() == true) {
+							self = this;
+						}
+
+
+						if (self && !in_previous || !self && in_previous) {
+							inner_change = change = true;
+
+						}
+						else {
+							inner_change = false;
+						}
+					}
+
+
+
+					if (self) {
+
+						//Here a question about whether this should be viable based on the winner is cast forth.
+
+						if (!winner) {
+							winner = GetBaseObject();
+							return { self };
+						}
+						else {
+							bool collapse = GetBaseObject()->ShouldCollapse() || winner->ShouldSmash() && (!winner->IsInputRelevant() || winner->IsInConflict(GetBaseObject()));
+
+							if (collapse)
+								return {};
+						}
+					}
+
+
+
+					//if (in_previous) {
+					//	return {};
+					//}
+
+
+
+					std::vector<Instance*> result;
+
+
+					for (auto parent : GetBaseObject()->parents)
+					{
+						auto add = parent->ObtainContextInstance(context)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
+
+						if (add.size() != 0)
+							result.append_range(add);
+					}
+
+					return result;
+				}
+
+				//bool CheckConditions(std::span<StateEntry>& end){}
+
+				void LoadVisitorList(detail::VisitorList& list, Input input, Input control, InputState*& winner)
+				{
+					auto ctrl_it = storage.find(control.hash());
+					auto input_it = storage.find(input.hash());
+
+					auto end = storage.end();
+
+
+					bool add = true;
+
+					bool c_find = ctrl_it != end;
+					bool i_find = input_it != end;
+
+					auto settings = GetBaseObject();
+
+					if  constexpr (0)
+					{
+						//I'm doing this real crude like for the visuals
+						if (c_find || i_find)
+						{
+							//Do this bit first if you can, it'd be nice to have the searching not done if it's not viable.
+							if (!winner) {
+								//Winner only matters here if it does either of these things
+								if (settings->ShouldSmother() || settings->ShouldSmash())
+									winner = settings;
+							}
+							else
+							{
+								if (settings->ShouldCollapse() || winner->ShouldSmash())
+								{
+									return;
+								}
+							}
+
+
+							if (c_find) {
+								list.push_back(std::ref(ctrl_it->second));
+								SetInputEnabled(control, true);
+							}
+
+							if (i_find) {
+								list.push_back(std::ref(input_it->second));
+								SetInputEnabled(input, true);
+							}
+						}
+					}
+					else
+					{
+						if (ctrl_it != end) {
+							list.push_back(std::ref(ctrl_it->second));
+							SetInputEnabled(control, true);
+						}
+
+						if (input_it != end) {
+							list.push_back(std::ref(input_it->second));
+							SetInputEnabled(input, true);
+						}
+					}
+
+
+					//Basically if it's already taken, take it back
+					InputState* _winner = winner;
+
+					for (auto& parent : settings->parents)
+					{
+						parent->ObtainContextInstance(context)->LoadVisitorList(list, input, control, _winner);
+					}
+
+
+				}
+			};
+			
+
+			InputState()
+			{
+				type = MatrixType::State;
+			}
+
+			Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+			{
+				return LoadInstance<Instance>(context, create_if_required);
+			}
+
+
+
+
+			static constexpr RefreshEvent genericUpdateEvent{ RefreshCode::Update, 0.0, CompareType::kGreaterOrEqual };
+
+
+
+			//This is a matrix setting that creates the setting
+			std::vector<InputState*> parents;
+
+			StateLevel level = StateLevel::Smother;
+			int16_t _priority = 1;
+			tmp_Condition* condition = nullptr;
+
+			std::string_view debugName;
+
+			std::set<Input> conflictList;
+
+			//If refresh events exist, then the default update is used.
+			std::set<RefreshEvent> refreshEvents;
+
+
+			bool CheckEvent(RefreshCode a_code, double data1, double data2)
+			{
+				//returns 1 if true, 0 if false, -1 if it fails the basic state update and doesn't have any entries.
+
+				if (a_code == RefreshCode::Absolute) {
+					return true;
+				}
+
+
+				if (refreshEvents.empty() && parents.empty() == true) {
+					return genericUpdateEvent.CheckEvent(a_code, data1, data2);
+				}
+
+
+				for (auto& event : refreshEvents)
+				{
+					if (event.CheckEvent(a_code, data1, data2) == true)
+					{
+						return true;
+					}
+				}
+
+				for (auto parent : parents)
+				{
+					if (parent->CheckEvent(a_code, data1, data2) == true)
+					{
+						return true;
+					}
+				}
+
+				return false;
+			}
+
+
+
+			MatrixType GetMatrixType() const override { return MatrixType::State; }
+
+			std::strong_ordering CompareOrder(const Matrix* o) const override
+			{
+				auto other = dynamic_cast<const InputState*>(o);
+
+				if (DerivesFrom(other) == true) {
+					return std::strong_ordering::greater;
+				}
+
+				if (other->DerivesFrom(this) == true) {
+					return std::strong_ordering::less;
+				}
+
+				return std::strong_ordering::equal;
+			}
+
+			//If input is relevant to the below
+			bool IsInputRelevant() const
+			{
+				switch (level)
+				{
+				case StateLevel::Smother:
+				case StateLevel::Clobber:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+			bool ShouldSmash() const
+			{
+				switch (level)
+				{
+				case StateLevel::Smash:
+				case StateLevel::Clobber:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+			//Collapse is the act of crumpling despite not being asked to.
+			bool ShouldCollapse() const
+			{
+				switch (level)
+				{
+				case StateLevel::Smash:
+				case StateLevel::Clobber:
+				case StateLevel::Collapse:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+			bool ShouldSmother() const
+			{
+
+				switch (level)
+				{
+				case StateLevel::Smash:
+				case StateLevel::Clobber:
+				case StateLevel::Smother:
+					return true;
+
+				default:
+					return false;
+				}
+			}
+
+
+			bool ShouldBeSmothered() const
+			{
+				return level != StateLevel::Merge;
+			}
+
+
+
+
+			void tmpBuildConflictList()
+			{
+				conflictList.clear();
+
+				for (auto& command : commands)
+				{
+					for (auto& trigger : command.triggers)
+					{
+						conflictList.insert_range(trigger.GetInputs());
+					}
+				}
+
+				for (auto parent : parents)
+				{
+					//This assumes that the previous has built it's own list.
+					conflictList.insert_range(parent->conflictList);
+				}
+			}
+
+			bool IsInConflict(const InputState* other) const
+			{
+				auto control_map = RE::ControlMap::GetSingleton();
+
+
+				for (auto input : conflictList) {
+					if (other->HasInput(input) == true)
+						return true;
+				}
+
+				if (other->HasRawInputs() == true)
+				{
+					for (auto input : other->conflictList) {
+						if (HasInputAsUserEvent(input) == true)
+							return true;
+
+
+						continue;
+
+						//saving this just in case
+						if (input.IsUserEvent() == true)
+							continue;
+
+
+						if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+							//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+							Input ctrl = Input::CreateUserEvent(name);
+
+							if (conflictList.contains(ctrl) == true)
+								return true;
+						}
+
+
+					}
+				}
+
+				return false;
+			}
+
+
+			bool IsInConflict(const InputState* other, Input input) const
+			{
+				return HasInput(input) && other->HasInput(input);
+			}
+
+
+			//A bool will get flipped on if we even need to look for user events in the conflict list.
+			bool HasRawInputs() const
+			{
+				//When a raw input is added to a state, a boolean flag will be ticked that will start the search from the other side.
+				return true;
+			}
+
+
+
+			bool HasInputAsUserEvent(Input input) const
+			{
+				if (input.IsUserEvent() == false) {
+					auto control_map = RE::ControlMap::GetSingleton();
+
+					if (auto name = control_map->GetUserEventName(input.code, input.device); name.empty() == false) {
+						//TODO: When custom controls exist, this will have to be done many times over to check for personal user events.
+						Input ctrl = Input::CreateUserEvent(name);
+
+						if (conflictList.contains(ctrl) == true)
+							return true;
+					}
+				}
+
+				return false;
+			}
+
+
+			bool HasInput(Input input) const
+			{
+				if (conflictList.contains(input) == true)
+					return true;
+
+				return HasInputAsUserEvent(input);
+			}
+
+			bool IsInConflict(const InputState& other)
+			{
+				return IsInConflict(&other);
+			}
+
+
+			bool DerivesFrom(const InputState* other) const
+			{
+				if (!other)
+					return false;
+
+				if (this == other)
+					return true;
+
+				for (auto parent : parents)
+				{
+					if (parent->DerivesFrom(other) == true)
+						return true;
+				}
+
+				return false;
+
+			}
+
+			bool CanInputPass(RE::InputEvent* event) const override
+			{
+				auto prev = __super::CanInputPass(event);
+
+				if (prev)
+				{
+					for (auto parent : parents)
+					{
+						if (parent->CanInputPass(event) == false) {
+							return false;
+						}
+					}
+				}
+
+				return prev;
+			}
+
+			bool tmpCheckCondition()
+			{
+				if (condition)
+					return condition(RE::PlayerCharacter::GetSingleton());
+
+				return true;
+			}
+
+			bool tmpCheckParentCondition()
+			{
+				for (auto parent : parents)
+				{
+					if (!parent->tmpCheckCondition() || !parent->tmpCheckParentCondition()) {
+						return false;
+					}
+				}
+
+				return true;
+			}
+
+			int16_t priority() const
+			{
+				return _priority;
+			}
+		};
+
+
+		struct InputMode : public LayerMatrix
+		{
+
+			struct Instance : public LayerMatrix::Instance
+			{
+			public:
+				CommandEntryPtr source = nullptr;
+				
+				bool isStrong = true;
+
+				InputMode* GetBaseObject()
+				{
+					return static_cast<InputMode*>(__super::GetBaseObject());
+				}
+				const InputMode* GetBaseObject() const
+				{
+					return static_cast<const InputMode*>(__super::GetBaseObject());
+				}
+
+			};
+
+			InputMode()
+			{
+				type = MatrixType::Mode;
+			}
+
+			Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+			{
+				return LoadInstance<Instance>(context, create_if_required);
+			}
+
+		};
+
+		inline void Testing()
+		{
+			InputState state{};
+
+		}
+
+
+	}
+
 }

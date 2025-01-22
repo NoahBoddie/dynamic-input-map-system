@@ -1,12 +1,14 @@
 #pragma once
 
 #include "InputNumber.h"
+#include "VirtualEvent.h"
 
 namespace DIMS
 {
 	struct InputInterface
 	{
-		InputInterface(RE::InputEvent* evt, RE::PlayerControls* ctrl) : event{ evt }, controls{ ctrl } {
+		//TODO: This needs to learn how to deal with virtual events
+		InputInterface(RE::InputEvent* evt) : event{ evt } {
 
 		}
 
@@ -34,8 +36,6 @@ namespace DIMS
 				//For these 2, use get axis instead.
 			case RE::INPUT_EVENT_TYPE::kMouseMove:
 			case RE::INPUT_EVENT_TYPE::kThumbstick:
-				return EventStage::None;
-
 				//While this is not normally possible, I will fake an input event at the very end of the cycle of no inputs are detected.
 				if (GetAxis() == k_zero_point)
 					return EventStage::Finish;
@@ -43,6 +43,9 @@ namespace DIMS
 					return EventStage::Start;
 				else
 					return EventStage::Repeating;
+			
+			case virtualEventType:
+				return virInput->stage;
 
 			default:
 				
@@ -61,12 +64,21 @@ namespace DIMS
 			switch (event->GetEventType())
 			{
 			case RE::INPUT_EVENT_TYPE::kButton:
-				if (auto button = event->AsButtonEvent())
-					return button->value;
+					return event->AsButtonEvent()->value;
 
 			case RE::INPUT_EVENT_TYPE::kMouseMove:
-			case RE::INPUT_EVENT_TYPE::kThumbstick:
-				return 0;
+				return 0.f;
+
+			case RE::INPUT_EVENT_TYPE::kThumbstick: {
+				auto thumb = event->AsThumbstickEvent();
+				return sqrt(thumb->xValue * thumb->xValue + thumb->yValue * thumb->yValue);
+			}
+
+			case VirtualEvent::EVENT_TYPE:
+				return virInput->value;
+			
+
+				
 
 			default:
 
@@ -76,6 +88,7 @@ namespace DIMS
 
 		RE::NiPoint2 GetAxis() const
 		{
+			//Id like to use a double version of this for the promise of accuracy
 			switch (event->GetEventType())
 			{
 			case RE::INPUT_EVENT_TYPE::kButton:
@@ -95,6 +108,9 @@ namespace DIMS
 				return RE::NiPoint2{ thumb->xValue, thumb->yValue };
 			}
 
+			case VirtualEvent::EVENT_TYPE:
+				return RE::NiPoint2{ virInput->x, virInput->y };
+
 			default:
 				return {};
 
@@ -102,23 +118,73 @@ namespace DIMS
 			}
 		}
 
+
+
 		RE::NiPoint2 GetAxisPrevious() const
 		{
+			static auto orbis_vtable = RE::BSPCOrbisGamepadDevice::VTABLE[0].address();
+			static auto win32_vtable = RE::BSWin32GamepadDevice::VTABLE[0].address();
+
+			//Id like to use a double version of this for the promise of accuracy
 			switch (event->GetEventType())
 			{
-			case RE::INPUT_EVENT_TYPE::kButton:
-				//This has a way to handle it, I just don't have it right now.
-				return {};
+			case RE::INPUT_EVENT_TYPE::kMouseMove: {
+				auto device_manager = RE::BSInputDeviceManager::GetSingleton();
 
-			case RE::INPUT_EVENT_TYPE::kMouseMove:
-				return controls->data.prevLookVec;
+				if (!device_manager)
+					break;
 
-			case RE::INPUT_EVENT_TYPE::kThumbstick:
-				return event->AsThumbstickEvent()->IsRight() ? controls->data.prevLookVec : controls->data.prevMoveVec;
+				auto mouse = device_manager->GetMouse();
 
+				if (!mouse)
+					break;
+
+				return RE::NiPoint2{ (float)mouse->dInputPrevState.x, (float)mouse->dInputPrevState.y };
+			}
+
+
+
+			case RE::INPUT_EVENT_TYPE::kThumbstick: {
+				auto device_manager = RE::BSInputDeviceManager::GetSingleton();
+
+				if (!device_manager)
+					break;
+
+				auto delegate = device_manager->GetGamepad();
+
+				if (!delegate)
+					break;
+
+				auto vtable = *reinterpret_cast<uint64_t*>(delegate);
+
+				bool right = event->AsThumbstickEvent()->IsRight();
+
+				if (vtable == win32_vtable)
+				{
+					auto gamepad = static_cast<RE::BSWin32GamepadDevice*>(delegate);
+					return RE::NiPoint2{ right ? gamepad->previousRX : gamepad->previousLX, right ? gamepad->previousRY : gamepad->previousLY };
+				}
+				else if (vtable == win32_vtable)
+				{
+					auto gamepad = static_cast<RE::BSPCOrbisGamepadDevice*>(delegate);
+					return RE::NiPoint2{ right ? gamepad->previousRX : gamepad->previousLX, right ? gamepad->previousRY : gamepad->previousLY };
+				}
+				else
+				{
+					assert(false);
+					break;
+				}
+				
+			}
+
+			//case VirtualEvent::EVENT_TYPE:
 			default:
 				return {};
+
+
 			}
+
+			return {};
 		}
 
 
@@ -140,14 +206,28 @@ namespace DIMS
 				auto thumb = event->AsThumbstickEvent();
 				return { thumb->xValue, thumb->yValue };
 			}
-			default:
-				return {};
-			}
+			case VirtualEvent::EVENT_TYPE:
+				switch (virInput->proxy)
+				{
+				case RE::INPUT_EVENT_TYPE::kButton: {
+					auto button = event->AsButtonEvent();
+					return { virInput->value, virInput->heldDownSecs };
+				}
+				case RE::INPUT_EVENT_TYPE::kMouseMove:
+				case RE::INPUT_EVENT_TYPE::kThumbstick: {
+					return { virInput->x, virInput->y };
+				}
+				default://If it's null, we just don't care.
+					break;
+				}
 
+			}
+			
+			return {};
 			
 		}
 
-
+		//I think this should probably accept either int or float to be safe.
 		void SetEventValues(InputNumber value1, InputNumber value2) const
 		{
 
@@ -171,6 +251,30 @@ namespace DIMS
 				thumb->xValue = value1;
 				thumb->yValue = value2;
 			}
+			case VirtualEvent::EVENT_TYPE:
+				switch (virInput->proxy) 
+				{
+				case RE::INPUT_EVENT_TYPE::kButton: {
+					auto button = event->AsButtonEvent();
+					button->value = value1;
+					button->heldDownSecs = value2;
+					break;
+				}
+				case RE::INPUT_EVENT_TYPE::kMouseMove: {
+					virInput->x = (int)value1;
+					virInput->y = (int)value2;
+					break;
+				}
+
+				case RE::INPUT_EVENT_TYPE::kThumbstick: {
+					virInput->x = value1;
+					virInput->y = value2;
+				}
+
+				default:
+					break;
+				}
+
 			default:
 				//warn
 				break;
@@ -228,6 +332,8 @@ namespace DIMS
 		{
 			switch (event->GetEventType())
 			{
+
+
 			case RE::INPUT_EVENT_TYPE::kMouseMove:
 			case RE::INPUT_EVENT_TYPE::kThumbstick:
 				return 1;
@@ -244,15 +350,19 @@ namespace DIMS
 
 				[[fallthrough]];
 			default:
+				//Manually check device type and possible ID codes from here.
 				return 0;
 
 			}
 		}
+	public:
 
-
-		RE::InputEvent* const event{};
-		RE::PlayerControls* const controls{};
-
+		union
+		{
+			RE::InputEvent* const event{};
+			VirtualEvent* const virInput;
+			//RE::PlayerControls* const controls{};
+		};
 	};
 
 }
