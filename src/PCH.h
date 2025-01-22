@@ -118,6 +118,7 @@
 #include "RoguesGallery.hpp"
 
 
+#include "Impl/TypeAliases.h"
 
 #include "Enums.h"
 #include "Settings.h"
@@ -126,6 +127,13 @@ namespace DIMS
 {
 	using namespace RGL_NAMESPACE;
 	using namespace RGL_INCLUDE_NAMESPACE;
+
+	inline void EST()
+	{
+		ParameterType type;
+		~type;
+	}
+
 }
 
 
@@ -136,6 +144,11 @@ namespace logger = SKSE::log;
 
 namespace util {
     using SKSE::stl::report_and_fail;
+}
+
+inline float SecondsSinceLastUpdate(uint32_t time)
+{
+	return (RE::GetDurationOfApplicationRunTime() - time) / 1000.f;
 }
 
 #define RELOCATION_OFFSET(SE, AE) REL::VariantOffset(SE, AE, 0).offset()
