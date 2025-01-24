@@ -38,7 +38,7 @@ namespace DIMS
 		InputCount success = 0;		//This is how many inputs need to happen before this is considered for active.
 		//TODO: Input is a bit large, you can only press so many buttons at once. Maybe curb the amount some.
 		
-
+		CommandFlag flags = CommandFlag::None;
 
 
 		//If failure is not 0, you not to regard. Failure is SPECIFICALLY used when something like a delay function fails requirements like

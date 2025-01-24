@@ -21,6 +21,8 @@
 
 #include "VirtualEvent.h"
 
+
+
 namespace DIMS
 {
 	//Lookup types
@@ -35,7 +37,7 @@ namespace DIMS
 	RE::BSInputDeviceManager;
 	RE::CharEvent;
 	RE::FormID;
-	
+
 	//May make this an actual class with the ability to restore what's stored.
 
 
@@ -50,7 +52,7 @@ namespace DIMS
 
 	inline void CONTROLESQUE(RE::ControlMap* a_controls)
 	{
-		
+
 		for (auto x = 0; x < RE::InputContextID::kTotal; x++)
 		{
 
@@ -65,7 +67,7 @@ namespace DIMS
 					logger::info("Context:{}, Device: {}({}), code: {}, userEvent: {}, modifier: {}, linked(?): {}, index: {}, handle: {}",
 						magic_enum::enum_name((RE::InputContextID)x),
 						magic_enum::enum_name((RE::INPUT_DEVICE)i), i, value.inputKey, value.eventID.c_str(), value.modifier, value.linked, value.indexInContext
-					, value.pad14);
+						, value.pad14);
 				}
 			}
 		}
@@ -73,19 +75,19 @@ namespace DIMS
 
 		for (auto& link : a_controls->linkedMappings)
 		{
-			
+
 			logger::info("Device: {}({}), Mapped Name: {}, From Name: {}, Mapped Context: {}, From Context: {}",
-				magic_enum::enum_name(link.device), (int)link.device, link.linkedMappingName.c_str(), link.linkFromName.c_str(), 
+				magic_enum::enum_name(link.device), (int)link.device, link.linkedMappingName.c_str(), link.linkFromName.c_str(),
 				magic_enum::enum_name(link.linkedMappingContext),
 				magic_enum::enum_name(link.linkFromContext));
 		}
-		
+
 		auto& in_you_go = a_controls->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard];
 		auto use_events = RE::UserEvents::GetSingleton();
 		logger::info("end {} and {}, or {} {} {}", in_you_go.size(), a_controls->pad123,
 			use_events->pad001, use_events->pad002, use_events->pad004);
 
-		constexpr auto test = offsetof(RE::UserEvents, pad001);		
+		constexpr auto test = offsetof(RE::UserEvents, pad001);
 	}
 
 
@@ -183,7 +185,7 @@ namespace DIMS
 		}
 	}
 
-	
+
 
 
 
@@ -276,7 +278,7 @@ namespace DIMS
 		//I'm giving this an optional second value. if the compare type has a flag of "using the second value, the first value is used
 		// as a first pass, and must be equal. This increases the size some, but this isn't a particularly expensive increase so who cares.
 		// also static size increases aren't to be feared.
-		
+
 
 		CompareType compare() const
 		{
@@ -351,37 +353,31 @@ namespace DIMS
 		double value;
 
 		RefreshData(double v) : value{ v } {}
-		RefreshData(const RE::BSFixedString& str) : value{ (double)Hash<HashFlags::Insensitive>(str.c_str(), str.length()) }{}
+		RefreshData(const RE::BSFixedString& str) : value{ (double)Hash<HashFlags::Insensitive>(str.c_str(), str.length()) } {}
 	};
-	
+
 
 	struct CustomMapping
 	{
-		struct Handle
+		struct cust_less
 		{
-			uint32_t index;
 
-			CustomMapping* operator->() const
+			bool operator()(const RE::BSFixedString& lhs, const RE::BSFixedString& rhs) const
 			{
-				if (index != -1)
-					return std::addressof(mappingList[index]);
-
-				return nullptr;
+				return lhs.data() < rhs.data();
 			}
 
-
-			Handle(uint32_t i) : index { i } {}
 		};
 
 
-		static Handle Create(std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
+		static void Create(const RE::BSFixedString& event_name, std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
 		{
 			//Please make this handle nothing if it doesn't warrant a handle
+
+			//Check for it already existing here.
+
+			CustomMapping& result = mappings[event_name];
 			
-			Handle handle = (uint32_t)mappingList.size();
-
-			CustomMapping& result = mappingList.emplace_back();
-
 
 			result.fileHash = std::hash<std::string_view>{}(a_filename);
 
@@ -391,15 +387,24 @@ namespace DIMS
 
 			result._id = next = a_index.value_or(next++);
 
-			return handle;
+			return;
 		}
 
+		inline static std::map<RE::BSFixedString, CustomMapping, cust_less> mappings;
 
-		inline static std::vector<CustomMapping> mappingList;
+
+
 		inline static std::unordered_map<uint64_t, uint8_t> nextIndexMap;
 
+		static CustomMapping* Get(const RE::BSFixedString& str)
+		{
+			auto it = mappings.find(str);
 
+			if (mappings.end() != it)
+				return std::addressof(it->second);
 
+			return nullptr;
+		}
 
 		uint64_t file() const
 		{
@@ -416,9 +421,9 @@ namespace DIMS
 			if (!this)
 				return 0;
 
-			return fileHash;
+			return _id;
 		}
-		
+
 		uint32_t category() const
 		{
 			if (!this)
@@ -427,18 +432,18 @@ namespace DIMS
 			return _category;
 		}
 
-		
+
 
 		//I have no idea if I want to do this, but it'll be what I use if I ever make an in game editor. Probably not though.
 		//inline static std::unordered_map<uint32_t, CustomMapping> tempMap;
 
 		uint64_t fileHash;	//The hash of the file name this spawned from. Can be manually set to restore an existing config
-		
+
 		uint32_t _id;			//ID given or assigned within the file. Can be manually set to restore an existing config
 
 		//This can be an editor data only object.
 		//uint16_t priority;	//Determines the order of that the inputs are loaded in, also determining the order of secondary controls
-		
+
 		uint32_t _category;	//To be a string hash that determines what category it should belong to
 
 		//If the tag of customevent is -1, this means that it has no custom mapping data.
@@ -447,35 +452,38 @@ namespace DIMS
 
 
 	};
-
 	
+	struct Break {
+		Break()
+		{
+			//assert(false);
+			//throw nullptr;
+		}
+	} inline breaker{};
 
 	struct CustomEvent : public RE::UserEventMapping
 	{
-	private:
-		uint32_t& tag() const { return const_cast<uint32_t&>(pad14); }
+
+
+
 	public:
-		CustomMapping::Handle& handle()
-		{ 
-			if (!eventID.empty() && IsCustomEvent() == false)
-				tag() = -1;
-
-			return reinterpret_cast<CustomMapping::Handle&>(pad14); 
-		}
-		const CustomMapping::Handle& handle() const 
-		{ 
-			//With this, no need to check for the handle, non-customs won't have handle at all.
-			if (!eventID.empty() && IsCustomEvent() == false)
-				tag() = -1;
-			
-			return reinterpret_cast<const CustomMapping::Handle&>(pad14);
+		uint32_t& tag()
+		{
+			return pad14;
 		}
 
+		CustomMapping* mapping() const
+		{
+			if (!IsCustomEvent() || !remappable)
+				return nullptr;
+
+			return CustomMapping::Get(eventID);
+		}
 
 
 		bool IsSignature(uint64_t hash, uint8_t index) const
 		{
-			return handle()->file() == hash && handle()->id() == index;
+			return mapping()->file() == hash && mapping()->id() == index;
 		}
 
 		bool CanRemapTo(uint64_t hash, uint8_t index) const
@@ -502,7 +510,6 @@ namespace DIMS
 			a_this->remappable = false;
 			a_this->linked = false;
 			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
-			a_this->tag() = -1;
 			return a_this;
 		}
 
@@ -518,7 +525,6 @@ namespace DIMS
 			a_this->remappable = false;
 			a_this->linked = false;
 			a_this->userEventGroupFlag = RE::UserEventFlag::kAll;
-			a_this->tag() = -1;
 			return a_this;
 		}
 
@@ -532,15 +538,20 @@ namespace DIMS
 		{
 			Ctor();
 			indexInContext = -1;
-			tag() = -1;
 		}
 
-		CustomEvent(std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
+		CustomEvent(const RE::BSFixedString& event_name, std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index, bool remap)
 		{
+			//This needs some other settable data, such as remappable
 			Ctor();
+			eventID = event_name;
 			indexInContext = -1;
 			modifier = 0;
-			handle() = CustomMapping::Create(a_filename, a_category, a_index);
+
+			if (remap) {
+				remappable = true;
+				CustomMapping::Create(eventID, a_filename, a_category, a_index);
+			}
 		}
 
 	};
@@ -1185,7 +1196,6 @@ namespace DIMS
 	};
 
 	struct StateMap//This carries the unique pointers of active states
-		
 	{
 		
 		//These are the childless active states, who collectively maintain the existence
@@ -1203,6 +1213,10 @@ namespace DIMS
 
 		uint32_t updateTimestamp = 0;
 		//Active states
+
+		//TODO: State map should come with a list of inputs (similar to the whole block thing) that it wants destroyed.
+		//It should be updated every time a state changes, and cleared once the changes are accepted. 
+		// this system should exist for the purposes
 
 	
 
@@ -2847,10 +2861,7 @@ namespace DIMS
 									}
 
 
-									
-									//if (!active_input->IsStageBlockedHashed(block_, hash, act.id(), i) || act.entry->ShouldBeBlocked() == false)
 									{
-										//if (!block_ || act.entry->ShouldBeBlocked() == false) {
 
 										EventData data{ this, act.entry, &active_input->data, event, i };
 
@@ -3065,10 +3076,7 @@ namespace DIMS
 							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
 							// computing needed to process things that will never come into success.
 
-							//if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) 
 							{
-								//if (!block_ || act.entry->ShouldBeBlocked() == false) {
-
 								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
 
 								if (!act.entry->Execute(data, flags)) {

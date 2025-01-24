@@ -13,8 +13,6 @@ namespace DIMS
 
 
 #pragma pack(push,1)
-
-
     struct  UserEventData
     {
         union
@@ -52,8 +50,8 @@ namespace DIMS
         }
 
         UserEventData(CustomEvent* mapping) : 
-            fileID{ mapping->handle()->file() },
-            eventID{mapping->handle()->id()},
+            fileID{ mapping->mapping()->file() },
+            eventID{mapping->mapping()->id()},
             inputID{ mapping->inputKey },
             modifierID{mapping->modifier}
         {
@@ -238,6 +236,7 @@ namespace DIMS
                 }
             }
 
+
             if (saved)
             {
                 logger::info("saving...");
@@ -326,26 +325,25 @@ namespace DIMS
                 }
             }
             //*/
-            return;//This is retired for now, due to not really having a proper alignment and it's name.
+            //return;//This is retired for now, due to not really having a proper alignment and it's name.
 
-            CustomEvent TEST_B{ "TestDocument", "TESTAREA", 1};
+            CustomEvent TEST_B{ "TEST_B", "TestDocument", "TESTAREA", 1, true};
 
-            TEST_B.eventID = "TEST_B";
             TEST_B.inputKey = 48;
-            TEST_B.remappable = true;
             TEST_B.userEventGroupFlag = {};
 
             a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].push_back(TEST_B);
+            TEST_B.inputKey = -1;
             a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kMouse].push_back(TEST_B);
 
-            CustomEvent TEST_H{ "TestDocument", "TESTAREA", 2 };
+            CustomEvent TEST_H{ "TEST_H", "TestDocument", "TESTAREA", 2, true };
 
-            TEST_H.eventID = "TEST_H";
             TEST_H.inputKey = 35;
-            TEST_H.remappable = true;
             TEST_H.userEventGroupFlag = {};
             a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kKeyboard].push_back(TEST_H);
+            TEST_H.inputKey = -1;
             a_this->controlMap[RE::InputContextID::kGameplay]->deviceMappings[RE::INPUT_DEVICE::kMouse].push_back(TEST_H);
+
 
         }
 
@@ -473,21 +471,25 @@ namespace DIMS
     };
 
 
-    struct UserEventCategory1Hook
+    struct UserEventCategory_TempMappingHook
     {
 
         static void Install()
         {
 
             //SE: 0xC13230, AE: 0x000000, VR: ???
-            REL::Relocation<uintptr_t> hook{ REL::RelocationID{67261, 0}, 0x86 };
+            REL::RelocationID base{ 67261, 0 };
+
+            REL::Relocation<uintptr_t> hook{ base, 0x86 };
             
             struct Code : Xbyak::CodeGenerator
             {
                 Code()
                 {
-                    lea(r8, ptr[rsp + 0x88 + -0x50 + 0x8]);//I'm really not sure where the plus 8 came from but if it works fuck it we ball.
-                    
+                    //I'm really not sure where the plus 8 came from but if it works fuck it we ball.
+                    // Correction, the +8 comes from the call that just happened to get here. Not our fault, it was already a call.
+                    lea(r8, ptr[rsp + 0x88 + -0x50 + 0x8]);
+                    //Though, would r13 not suffice? It seems to be loaded manually.
 
                     mov(rax, (uintptr_t)thunk);
                     jmp(rax);
@@ -499,6 +501,10 @@ namespace DIMS
 
             func = trampoline.write_call<5>(hook.address(), (uintptr_t)code.getCode());
 
+            //C13230
+            //This disables a set of the BSFixedString, preventing our change here from being overriden.
+            //REL::safe_fill(base.address() + 0xBA, 0x90, 0x9);
+            //REL::safe_fill(base.address() + 0xC3, 0x90, 0x7);
 
         }
 
@@ -506,8 +512,17 @@ namespace DIMS
         {
             auto result = func(lhs, rhs, out);
 
-            if (result)
-                out.handle() = lhs.handle();
+            
+
+            if (result) {
+                //Garbage is in out, we don't want ANY copy constructors firing off, so we have to clear first.
+                //reinterpret_cast<void*&>(out.eventID) = nullptr;;
+                //out.eventID = lhs.eventID;
+                //out.indexInContext = -1;
+
+                //The idea is we use this tag in the temporary space instead of using the fixed string, which may have more complications.
+                out.tag() = lhs.mapping()->category();
+            }
 
 
             return result;
@@ -519,7 +534,7 @@ namespace DIMS
     };
 
     //write_call
-    struct UserEventCategoryHook
+    struct UserEventCategory_CompareHook
     {
 
         static void Install()
@@ -529,22 +544,56 @@ namespace DIMS
 
             func = SKSE::GetTrampoline().write_call<5>(hook.address(), thunk);
 
-            logger::info("UserEventCategoryHook complete...");
+            logger::info("UserEventCategory_CompareHook complete...");
         }
 
-        static int32_t thunk(CustomEvent* lhs, CustomEvent* rhs)
+        static bool thunk(CustomEvent* lhs, CustomEvent* rhs)
         {
-            auto cmp = lhs->handle()->category() <=> rhs->handle()->category();
+           
+            //auto category =  
+
+
+
+            //auto cmp = lhs->mapping()->category() <=> rhs->mapping()->category();
+            auto cmp = lhs->tag() <=> rhs->mapping()->category();
 
             if (cmp == std::strong_ordering::equivalent)
                 return func(lhs, rhs);
-
-            return -1;
+            //return func(lhs, rhs);
+            return 1;
 
         }
 
 
         inline static REL::Relocation<decltype(thunk)> func;
+    };
+
+    struct UserEventCategory_IteratorHook
+    {
+        static void Install()
+        {
+            //Safe write to make this  "mov rdx, edx"
+           //C13230 + 101
+            //ACTUALLY
+            //C13230 + F8-101
+            //ESI moved into EBX. Hook location might change, for now, I just want the effect, I'll make the proper part later.
+
+            //C13230+111
+
+
+            auto base = REL::RelocationID(67261, 0).address();
+            
+            auto hook_address = base + 0xF8;
+            auto ret_address = base + 0x101;
+            
+            //mov ebx, esi
+            constexpr std::array<uint8_t, 2> instruction{ 0x89, 0xF3 };
+            constexpr auto size = instruction.size();
+
+            REL::safe_write(hook_address, &instruction, size);
+            REL::safe_fill(hook_address + size, 0x90, ret_address - hook_address - size);
+            logger::info("UserEventCategory_IteratorHook complete...");
+        }
     };
 
 

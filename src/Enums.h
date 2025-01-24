@@ -139,6 +139,7 @@ namespace DIMS
 	{
 		None = 0,
 		Reprise = 1 << 0,	//It is allowed to handle reprisal events
+		KeepCheckingCondition = 1 << 1,
 	};
 
 	enum struct ConflictLevel : int8_t
@@ -211,4 +212,25 @@ namespace DIMS
 		Smash,			//Smashes lesser regardless of input clash
 		Collapse,		//Collapses the lesser regardless of clash
 	};
+
+
+
+
+	//I think I'll move the flags to this
+	ENUM(CommandFlag, uint8_t)
+	{
+		None		= 0,
+		Started		= 1 << 0,
+		Finished	= 1 << 1,
+		Complete	= 1 << 2,
+		Canceled	= 1 << 3,
+		Inactive	= 1 << 4,		//CommandEntries with inactive 
+		Disabled	= 1 << 5,
+		Delayed		= 1 << 6,
+
+		StageFlags = Started | Finished,
+		RunningFlags = Complete | Canceled | Inactive,
+
+	};
+
 }

@@ -4,7 +4,7 @@
 #include "Triggers/OnButton.h"
 #include "Triggers/OnControl.h"
 #include "Triggers/OnMouseMove.h"
-
+#include "Triggers/OnThumbstick.h"
 #include "Triggers/OnAxis.h"
 
 namespace DIMS
@@ -14,7 +14,7 @@ namespace DIMS
 		new OnButton,
 		new OnControl,
 		new OnMouseMove,
-
+		new OnThumbstick,
 		new OnAxis,
 	};
 }
