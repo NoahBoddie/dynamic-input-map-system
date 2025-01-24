@@ -14,10 +14,14 @@ namespace DIMS
 
 	enum struct DelayState
 	{
-		None,		//If none, it cannot be delayed at all, and is thus, undelayable.
-		Continue,
-		Failure,	//The conditions have promoted failure, and this it will not continue.
+		None,			//This command has no state of delay
+		Failure,		//This command is unable to run due to failing delay conditions
+		Success,		//This command is now able to run passing delay conditions
+		Listening,		//This command is can continue querying for an end to its delay state
+		Advancing		//This command can both continue querying its delay state and innate based delay conditions
 	};
+
+
 
 	//The interface for trigger information. Holds data for how to treat the trigger
 	struct ITrigger
@@ -33,14 +37,16 @@ namespace DIMS
 
 		virtual Input GetInput(const Argument* list) const = 0;
 
-		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const
+
+		
+		virtual DelayState GetDelayState(const Argument* args, const ActiveData* data, EventStage stage) const
 		{
-			return args.size() <= 1 ? 
-				DelayState::None : GetDelayComboState(args, input, data) ?
-				DelayState::Continue : DelayState::Failure;
+			//This is the new set up here, there's a single argument, as this doesn't really extra care what each arg says, just how many there are.
+			// So instead, I'll just give it the size of inputs.
+			//Correction, the previous will just handle this. If the value is none, it will check the amount of inputs and make it Listening
+			return DelayState::None;
 		}
 
-		virtual bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const = 0;
 
 		virtual uint32_t GetPrecedence(uint32_t a_input_size) const { return a_input_size; }
 
@@ -61,8 +67,8 @@ namespace DIMS
 
 		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const override = 0;
 
-		virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const override = 0;
+		//virtual DelayState GetDelayState(std::span<Argument* const> args, InputInterface* input, ActiveData* data) const override = 0;
 
-		virtual bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override { return true; }
+		//virtual bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override { return true; }
 	};
 }

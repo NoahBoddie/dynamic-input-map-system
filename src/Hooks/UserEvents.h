@@ -103,8 +103,6 @@ namespace DIMS
     //write_call
     struct ControlMapLoadHook
     {
-        //Believe it or not, this is actually a super important hook now, this is when controls get loaded into the game
-
         static void Install()
         {
             //C10DC0+10B
@@ -115,7 +113,7 @@ namespace DIMS
             logger::debug("hook success.");
         }
 
-
+       
 
         static void thunk(RE::ControlMap* a_this)
         {
@@ -151,6 +149,8 @@ namespace DIMS
             {
                 int32_t size;
 
+                int changes = 0;
+
                 myfile >> size;
 
                 logger::info("Device {} size = {}", magic_enum::enum_name((RE::INPUT_DEVICE)device), size);
@@ -170,6 +170,7 @@ namespace DIMS
                             entry.inputKey = data.inputID;
                             entry.modifier = data.modifierID;
                             success = true;
+                            changes++;
                             break;
                         }
                     }
@@ -178,7 +179,17 @@ namespace DIMS
                         logger::warn("didn't deserialize file {} index {}", data.fileID, data.eventID);
                     }
                 }
+
+                if (changes)
+                {
+                    std::sort(device_list.begin(), device_list.end(), [](CustomEvent& lhs, CustomEvent& rhs) { return lhs.Compare(rhs); });
+                }
             }
+
+
+
+            //logger::info("BABY IM PREYING ON YOU TONIGHT, LIKE ANIMALS ANIMALS ANIMALS MALS");
+            //CONTROLESQUE(RE::ControlMap::GetSingleton());
 
             if (myfile.eof() == false) {
                 //produce error.
@@ -455,6 +466,7 @@ namespace DIMS
 
         static uint16_t thunk(CustomEvent* mapping, uint8_t* buffer, uint16_t index)
         {
+            //You know, you don't need to redo this function entirely, see if you can safe write it.
             if (mapping->IsCustomEvent() == false) {
                 buffer[index++] = mapping->indexInContext;
                 buffer[index++] = HIBYTE(mapping->modifier);
@@ -549,11 +561,6 @@ namespace DIMS
 
         static bool thunk(CustomEvent* lhs, CustomEvent* rhs)
         {
-           
-            //auto category =  
-
-
-
             //auto cmp = lhs->mapping()->category() <=> rhs->mapping()->category();
             auto cmp = lhs->tag() <=> rhs->mapping()->category();
 

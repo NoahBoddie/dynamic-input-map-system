@@ -12,7 +12,7 @@ namespace DIMS
 		//All trigger classes will have these big old parameter constants. While the names of these parameters are found
 		static constexpr auto CONTROL_ID = 0;
 
-
+		static constexpr auto HOLD_TIME = 0;
 
 
 		TriggerType GetTriggerType() const override { return TriggerType::OnControl; }
@@ -27,12 +27,10 @@ namespace DIMS
 		}
 
 
+		virtual DelayState GetDelayState(const Argument* args, const ActiveData* data, EventStage stage) const;
+
 		Input GetInput(const Argument* args) const override;
 
-		bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override
-		{
-			return data ? data->SecondsHeld() < Settings::comboPressTime : true;
-		}
 
 	};
 }

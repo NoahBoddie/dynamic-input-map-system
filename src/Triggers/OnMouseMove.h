@@ -35,12 +35,6 @@ namespace DIMS
 			return event->eventType == RE::INPUT_EVENT_TYPE::kMouseMove || event->eventType == VirtualEvent::EVENT_TYPE;
 		}
 
-		bool GetDelayComboState(std::span<Argument* const>& args, InputInterface* input, ActiveData* data) const override
-		{
-			return data ? data->SecondsHeld() < Settings::comboPressTime : true;
-		}
-
-
 
 	};
 

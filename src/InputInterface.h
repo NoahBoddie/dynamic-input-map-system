@@ -13,6 +13,12 @@ namespace DIMS
 		}
 
 
+
+		constexpr operator bool() const noexcept
+		{
+			return event;
+		}
+
 		EventStage GetEventStage() const
 		{
 			//controls like look can have different life times that of a single buttons. Example is Look. For something like that I'll have

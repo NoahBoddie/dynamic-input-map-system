@@ -148,7 +148,7 @@ namespace DIMS
 
 
 			case ActiveState::Managing:
-				if (entry->GetSuccess() || !in) {
+				if (entry->GetSuccess() || (!in && !entry->IsDelayed())) {
 					SetState(ActiveState::Running);
 					entry->IncSuccess();
 				}
@@ -174,6 +174,9 @@ namespace DIMS
 
 		bool UpdateIfDirty() const
 		{
+			//This seems to be a good idea, mainly because updates are so cheap. Also gives me some value to play with.s
+			Update();
+			return true;
 			auto result = IsDirty();
 
 			if (result) {
@@ -271,7 +274,7 @@ public:
 		//16+2+1+1+4
 		mutable CommandEntryPtr entry;
 
-
+		//TODO: Rename waiters to "Dependents" or "Pending" or something of the like.
 		int16_t waiters = 0;
 
 

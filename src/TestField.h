@@ -480,6 +480,11 @@ namespace DIMS
 			return CustomMapping::Get(eventID);
 		}
 
+		bool Compare(CustomEvent& other) const
+		{
+			//I'd like to expand on this at some point, making this the prefered method of sorting by supplanting the original
+			return inputKey < other.inputKey;
+		}
 
 		bool IsSignature(uint64_t hash, uint8_t index) const
 		{
@@ -1700,7 +1705,7 @@ namespace DIMS
 		}
 
 		//Recieves a command and returns the reference to the address of the emplaced entry
-		ActiveCommand& AddCommand(ActiveCommand& command)
+		ActiveCommand& AddCommand(ActiveCommand& command, EventStage stage)
 		{
 
 			if (HasDelayedCommands() == true) {
@@ -1736,10 +1741,16 @@ namespace DIMS
 			auto& result = sharedCommands.emplace_back(std::move(command));
 
 
-			if (result->IsDelayable() == true) {
+			//if (result->IsDelayable() == true) {
+			if (auto delay_state = result->GetDelayState(data, stage); delay_state != DelayState::None) {
 				//TODO: This may have issues suppressing other non-delayed commands. I think should be added regardless if it's actually running or not, ...
 				// otherwise it may not suppress events it my normally depending on the order of inputs
+				if (delay_state == DelayState::Advancing)
+					result->SetDelayed(true);
+				
 				EmplaceDelayCommand(result);
+
+
 			}
 
 			return result;
@@ -1759,21 +1770,13 @@ namespace DIMS
 				for (auto& other : sharedCommands)
 				{
 					if (&other == &act)
+					//if (other.id() == act.id())
 						continue;
 
 					if (act.entry->tmpname_ShouldWaitOnMe(*other.entry) == true) {
 						other.tempname_IncWaiters();
 
 						RemoveBlockStages(other);
-						continue;
-						//i'm just gonna do this shit manually for now ok? Im sleepy and hungry
-						//TODO: Make this a dedicated function
-						if (auto& blocker = blockCommands[0]; other.id() == blocker)
-							blocker = 0;
-						if (auto& blocker = blockCommands[1]; other.id() == blocker)
-							blocker = 0;
-						if (auto& blocker = blockCommands[2]; other.id() == blocker)
-							blocker = 0;
 					}
 
 
@@ -1838,23 +1841,38 @@ namespace DIMS
 
 		{//TODO: Make a different version of emplace function. I don't want this option exposed.
 
-			if (act.entry->IsDelayable() == true)
+
+			DelayState delay_state = act->GetDelayState(data, stage);
+
+			
+			//if (act.entry->IsDelayable() == true)
+
+			if (delay_state != DelayState::None)
 			{
-				if (!act.IsRunning() && stage == EventStage::Finish) {
-					act.Deactivate();
+				if (act.IsFailing() == true) {
+					delay_state = DelayState::Failure;
 				}
 
-
-				if (!act.IsRunning() && act.IsDelayUndone() == false)
+				if (delay_state == DelayState::Success) {
+					//While this delay condition is off, it needs to be running by this point.
+					act->SetDelayed(false);
+				}
+				else
 				{
-					DelayState delay_state = act.IsFailing() ? DelayState::Failure : act.entry->GetDelayState(nullptr, data);
+					bool is_running = act.IsRunning();
+
+					if (!is_running && stage == EventStage::Finish) {
+						act.Deactivate();
+						delay_state = DelayState::Failure;
+					}
 
 
-					if (delay_state == DelayState::Failure) {
-						//signify some failure.
+					if (!is_running && !act.IsDelayUndone() && delay_state == DelayState::Failure)
+					{
 						FailDelayCommand(act, stage);
 					}
 				}
+				
 			}
 
 
@@ -1872,7 +1890,8 @@ namespace DIMS
 			//cmd->GetFirstStage() < stage;
 
 
-			
+			//To the blocking features here, I'd like to disable them at a later point, handle this business elsewhere. Namble
+
 			if (cmd->ShouldBeBlocked() && IsStagesBlocked(cmd->GetTriggerFilter()) == true) {
 				return;
 			}
@@ -1880,10 +1899,11 @@ namespace DIMS
 
 			ActiveCommand act{ cmd };
 
+			
 			if (cmd->ShouldBlockTriggers() && EmplaceBlockStages(act) == false)
 				return;
 
-			AddCommand(act);
+			AddCommand(act, stage);
 		}
 		//This is actually useless btw.
 		void EmplaceCommand(CommandEntryPtr cmd, EventStage stage)

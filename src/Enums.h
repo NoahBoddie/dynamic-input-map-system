@@ -228,8 +228,8 @@ namespace DIMS
 		Disabled	= 1 << 5,
 		Delayed		= 1 << 6,
 
-		StageFlags = Started | Finished,
-		RunningFlags = Complete | Canceled | Inactive,
+		StageFlags = CommandFlag::Started | CommandFlag::Finished,
+		RunningFlags = CommandFlag::Complete | CommandFlag::Canceled | CommandFlag::Inactive,
 
 	};
 

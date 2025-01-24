@@ -24,6 +24,7 @@ namespace DIMS
 		//rename this pls
 		std::vector<std::unique_ptr<Argument[]>> args;//Note, maximum amount of inputs for any button is 10. thumbsticks 2, mouse 1.
 
+		std::unique_ptr<Argument[]> delayArgs;
 
 		void* conditions;//These are conditions SOLELY for the trigger in question.
 
@@ -112,19 +113,29 @@ namespace DIMS
 
 		bool IsDelayable() const
 		{
-			
-
-			return GetDelayState(nullptr, nullptr) != DelayState::None;
+			return GetDelayState(nullptr, EventStage::None) != DelayState::None;
 		}
 
 
-		DelayState GetDelayState(InputInterface* input, ActiveData* data) const
+		DelayState GetDelayState(const ActiveData* data, EventStage stage) const
 		{
 			auto trig_info = triggerInfo[type];
 
-			auto& re_args = reinterpret_cast<const std::vector<Argument*>&>(args);
+			DelayState result = trig_info->GetDelayState(delayArgs.get(), data, stage);
 
-			return trig_info->GetDelayState(re_args, input, data);
+
+			if (result == DelayState::None && args.size() > 1) {
+				
+				
+				if (data && data->SecondsHeld() < Settings::comboPressTime) {
+					result = DelayState::Listening;
+				}
+				else {
+					result = DelayState::Failure;
+				}
+			}
+
+			return result;
 		}
 
 		uint32_t Precedence() const

@@ -40,6 +40,22 @@ namespace DIMS
 		
 		CommandFlag flags = CommandFlag::None;
 
+		/// <summary>
+		/// Returns if the Command itself is delayed, and not just the input part
+		/// </summary>
+		/// <returns></returns>
+		bool IsDelayed() const
+		{
+			return flags & CommandFlag::Delayed;
+		}
+
+		void SetDelayed(bool value)
+		{
+			if (!value)
+				flags &= ~CommandFlag::Delayed;
+			else
+				flags |= CommandFlag::Delayed;
+		}
 
 		//If failure is not 0, you not to regard. Failure is SPECIFICALLY used when something like a delay function fails requirements like
 		// the amount of time required to
@@ -533,15 +549,15 @@ namespace DIMS
 		}
 
 
-		inline DelayState GetDelayState(InputInterface* input, ActiveData* data) const
+		inline DelayState GetDelayState(const ActiveData* data, EventStage stage) const
 		{
-			return trigger->GetDelayState(input, data);
+			return trigger->GetDelayState(data, stage);
 		}
 
 
-		inline DelayState GetDelayState(InputInterface* input, ActiveData& data) const
+		inline DelayState GetDelayState(const ActiveData& data, EventStage stage) const
 		{
-			return GetDelayState(input, &data);
+			return GetDelayState(&data, stage);
 		}
 
 		//May not need
