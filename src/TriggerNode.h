@@ -21,6 +21,7 @@ namespace DIMS
 		ConflictLevel conflict = ConflictLevel::None;//I may move this to action, due to the fact I'm not 100% sure triggers will want unique conflicts.
 		TriggerFlag flags = TriggerFlag::None;
 
+
 		//rename this pls
 		std::vector<std::unique_ptr<Argument[]>> args;//Note, maximum amount of inputs for any button is 10. thumbsticks 2, mouse 1.
 
@@ -123,12 +124,12 @@ namespace DIMS
 
 			DelayState result = trig_info->GetDelayState(delayArgs.get(), data, stage);
 
+			if (args.size() > 1) {
 
-			if (result == DelayState::None && args.size() > 1) {
-				
-				
+
 				if (data && data->SecondsHeld() < Settings::comboPressTime) {
-					result = DelayState::Listening;
+					if (result == DelayState::None)
+						result = DelayState::Listening;
 				}
 				else {
 					result = DelayState::Failure;
@@ -140,7 +141,30 @@ namespace DIMS
 
 		uint32_t Precedence() const
 		{
-			return triggerInfo[type]->GetPrecedence(args.size());
+			//0 shouldn't be a used value.
+			// if it has 0 args, it's 1. If it has 1, it's one.
+			// If it has 2, it's 3.
+			// if it has some inate stuff, that's plus 1.
+			//Here's what I get from this. min(args.size(), 0) + IsDelayable() if it's delayable
+
+			auto size = args.size();
+
+			//If it's delayable (or has multiple entries +1. Base size min 1.
+			//1: Commands with 1 or a fixed trigger
+			//2: Commands with 1 or a fixed trigger that causes delay.
+			//3+: Commands with multiple triggers.
+			//uint32_t base = std::max(size, (size_t)1) + (size > 1 ? 1 : IsDelayable());
+			uint32_t base = std::max(size, (size_t)1);
+
+			//GetDelayState(nullptr, EventStage::None)
+
+			return triggerInfo[type]->GetPrecedence(base);
+		}
+
+
+		uint32_t Rank() const
+		{
+			return triggerInfo[type]->GetRank(delayArgs.get());
 		}
 		
 	};

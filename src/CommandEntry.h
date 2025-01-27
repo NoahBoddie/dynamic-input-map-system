@@ -38,28 +38,13 @@ namespace DIMS
 		InputCount success = 0;		//This is how many inputs need to happen before this is considered for active.
 		//TODO: Input is a bit large, you can only press so many buttons at once. Maybe curb the amount some.
 		
-		CommandFlag flags = CommandFlag::None;
-
-		/// <summary>
-		/// Returns if the Command itself is delayed, and not just the input part
-		/// </summary>
-		/// <returns></returns>
-		bool IsDelayed() const
-		{
-			return flags & CommandFlag::Delayed;
-		}
-
-		void SetDelayed(bool value)
-		{
-			if (!value)
-				flags &= ~CommandFlag::Delayed;
-			else
-				flags |= CommandFlag::Delayed;
-		}
-
 		//If failure is not 0, you not to regard. Failure is SPECIFICALLY used when something like a delay function fails requirements like
 		// the amount of time required to
 		InputCount failure = 0;
+
+
+		mutable CommandFlag flags = CommandFlag::None;
+
 
 		//This index is incremented just know this is cursed btw.
 
@@ -100,7 +85,7 @@ namespace DIMS
 					return false;
 
 				default:
-					return priority() > priority();
+					return priority() > other.priority();
 				}
 
 
@@ -200,6 +185,9 @@ namespace DIMS
 		{
 			if (trigger->GetInputCount() == GetInputRef()) {
 				stagesVisit = EventStage::None;
+
+				flags &= ~CommandFlag::Instance;
+
 			}
 		}
 
@@ -345,6 +333,26 @@ namespace DIMS
 		void SetComplete() { success |= k_signedInput; }
 		void SetCancel() { failure |= k_signedInput; }
 
+
+		/// <summary>
+		/// Returns if the Command itself is delayed, and not just the input part
+		/// </summary>
+		/// <returns></returns>
+		bool IsDelayed() const
+		{
+			return flags & CommandFlag::Delayed;
+		}
+
+		void SetDelayed(bool value)
+		{
+			if (value)
+				flags |= CommandFlag::Delayed;
+			else
+				flags &= ~CommandFlag::Delayed;
+		}
+
+
+
 	protected:
 		void ClearComplete() { success &= ~k_signedInput; }
 		void ClearCancel() { failure &= ~k_signedInput; }
@@ -432,8 +440,8 @@ namespace DIMS
 		{
 			switch (trigger->GetConflictLevel())
 			{
-			case ConflictLevel::Defending:
-				//Fallthrough
+			case ConflictLevel::Defending://Fallthrough
+			case ConflictLevel::Guarding:
 			case ConflictLevel::Capturing:
 			case ConflictLevel::Blocking:
 				return true;
@@ -445,17 +453,31 @@ namespace DIMS
 
 		bool ShouldBeBlocked() const
 		{
-			switch (trigger->GetConflictLevel())
+			switch (GetConflictLevel())
 			{
-			case ConflictLevel::None:
 			case ConflictLevel::Sharing:
 			case ConflictLevel::Guarding:
+			case ConflictLevel::Following:
 				return false;
 
 			default:
 				return true;
 			}
 		}
+
+
+		bool UsesPrecedence() const
+		{
+			switch (trigger->GetConflictLevel())
+			{
+			case ConflictLevel::Following:
+				return false;
+
+			default:
+				return true;
+			}
+		}
+
 
 
 
@@ -523,24 +545,36 @@ namespace DIMS
 			return GetTriggerFilter() & EventStage::Finish;
 		}
 
-		bool tmpname_ShouldWaitOnMe(const CommandEntry& other)
+		bool tmpname_ShouldWaitOnMe(const CommandEntry& other) const
 		{
-			//This function will return space ship at some point maybe.
+			//return UsesPrecedence() && other.UsesPrecedence() ? Precedence() > other.Precedence() : false;
 
-			//This function will change after a while, but this is basically the idea. The idea of whether something changes or not is basically
-			// Does this thing have more trigger inputs than I do?
 
 			//Another note for later,
 			// For the basic types I have now, they can only declare something wait on them  if they are a similar trigger type. Both controls/buttons
 			// But for other types like OnFlick or OnTap these have their own category, and cannot be sidelined by the previous trigger types.
+			if ( !UsesPrecedence() || !other.UsesPrecedence() )
+				return false;
 
-			return Precedence() > other.Precedence();
+			auto result = Precedence() <=> other.Precedence();
+
+			if (result == std::strong_ordering::equal) {
+				result = Rank() <=> other.Rank();
+			}
+			
+
+			return result == std::strong_ordering::greater;
 		}
 
 
 		uint32_t Precedence() const
 		{
 			return trigger->Precedence();
+		}
+
+		uint16_t Rank() const
+		{
+			return trigger->Rank();
 		}
 
 		bool IsDelayable() const

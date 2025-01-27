@@ -12,15 +12,6 @@ namespace DIMS
 	struct InputInterface;
 	struct ActiveData;
 
-	enum struct DelayState
-	{
-		None,			//This command has no state of delay
-		Failure,		//This command is unable to run due to failing delay conditions
-		Success,		//This command is now able to run passing delay conditions
-		Listening,		//This command is can continue querying for an end to its delay state
-		Advancing		//This command can both continue querying its delay state and innate based delay conditions
-	};
-
 
 
 	//The interface for trigger information. Holds data for how to treat the trigger
@@ -39,7 +30,7 @@ namespace DIMS
 
 
 		
-		virtual DelayState GetDelayState(const Argument* args, const ActiveData* data, EventStage stage) const
+		virtual DelayState GetDelayState(const Argument* args, const ActiveData* data, EventStage stage/*, double value1, double value2*/) const
 		{
 			//This is the new set up here, there's a single argument, as this doesn't really extra care what each arg says, just how many there are.
 			// So instead, I'll just give it the size of inputs.
@@ -48,7 +39,10 @@ namespace DIMS
 		}
 
 
-		virtual uint32_t GetPrecedence(uint32_t a_input_size) const { return a_input_size; }
+		virtual uint32_t GetPrecedence(uint32_t base) const { return base; }
+
+		virtual uint16_t GetRank(const Argument* args) const { return 0; }
+
 
 		//This likely will ONLY be used in the event that things like double tapping come into play. not before then.
 		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const { return true; }

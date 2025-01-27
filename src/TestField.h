@@ -160,6 +160,7 @@ namespace DIMS
 
 					if (lhs.first == lhs.second)
 						return true;
+					//TODO: I'd like this to be handled entirely based on priority
 					//return (*lhs.first)->priority() < (*rhs.first)->priority();
 					//return (*lhs.first)->CompareOrder(**rhs.first);
 					return (*rhs.first)->CompareOrder(**lhs.first);
@@ -1497,6 +1498,17 @@ namespace DIMS
 		uint32_t highestPrecedence = 0;//The block delay is the highest level of delay priority active. If something is below this
 									// it cannot block other actions
 
+		uint16_t highestRank = 0;
+
+		std::vector<ActiveCommand> sharedCommands;
+
+		//At a later point, make this a pointer. Not all commands would ever need this.
+		// I have no idea if I may use a ref later.
+		//std::unordered_map<ActiveCommand::ID, uint16_t> delayCommands;
+		//If I could make some sort of struct that default creates a targeted object when accessed, that would be cool.
+		std::set<ActiveCommand::ID> delayCommands;
+
+
 #pragma region basic waiting/block funcs
 		bool IsBasicRunning() const
 		{
@@ -1553,6 +1565,7 @@ namespace DIMS
 		{
 			blockCommands = emptyBlock;
 			highestPrecedence = 0;
+			highestRank = 0;
 		}
 
 		void FillBlockStages()
@@ -1562,27 +1575,15 @@ namespace DIMS
 			//This prevents other items of precedence from taking place.
 			//EventStage reqs = EventStage::None;
 
+			//Shouldn't this be searching delay commands?
 			for (auto& command : sharedCommands)
 			{
 				//if (reqs == EventStage::All)
 				//	continue;
 
-				if (command.IsRunning() == true)
+				if (command.IsRunning() && command->ShouldBlockTriggers() == true)
 					EmplaceBlockStages(command);
 				
-				//auto pred = highestPrecedence;
-
-				//auto result = EmplaceBlockStages(command);
-				
-
-				//Precedence has changed. previous value no longer value.
-				//if (pred == highestPrecedence) {
-				//	reqs = EventStage::None;
-				//}
-
-				//if (result) {
-				//	reqs |= command->GetTriggerFilter();
-				//}
 			}
 		}
 
@@ -1611,18 +1612,19 @@ namespace DIMS
 		{
 
 			auto pred = cmd->Precedence();
-
-			if (pred > highestPrecedence){
+			auto rank = cmd->Rank();
+			if (pred > highestPrecedence || pred == highestPrecedence && rank > highestRank){
 				ClearBlockStages();
 				highestPrecedence = pred;
+				highestRank = rank;
 			}
-			else if (pred < highestPrecedence) {
+			else if (pred < highestPrecedence || rank < highestRank) {
 				return false;
 			}
 
 			auto emplace_array = blockCommands;
 
-			auto stages = cmd->GetTriggerFilter();
+			auto stages = cmd->GetBlockingFilter();
 
 			if (stages)
 			{
@@ -1661,14 +1663,6 @@ namespace DIMS
 #pragma endregion
 
 
-		std::vector<ActiveCommand> sharedCommands;
-
-		//At a later point, make this a pointer. Not all commands would ever need this.
-		// I have no idea if I may use a ref later.
-		//std::unordered_map<ActiveCommand::ID, uint16_t> delayCommands;
-		//If I could make some sort of struct that default creates a targeted object when accessed, that would be cool.
-		std::set<ActiveCommand::ID> delayCommands;
-		
 		void Initialize(InputNumber v1, InputNumber v2)
 		{
 			_init = true;
@@ -1748,9 +1742,9 @@ namespace DIMS
 				if (delay_state == DelayState::Advancing)
 					result->SetDelayed(true);
 				
-				EmplaceDelayCommand(result);
-
-
+				//Do this is precedence is greater than 1
+				if (result->UsesPrecedence() == true)
+					EmplaceDelayCommand(result);
 			}
 
 			return result;
@@ -1813,8 +1807,6 @@ namespace DIMS
 							//Here we refire all action related data.
 							//Here's another thought though, build playing catch up into the execution.
 
-							//Don't control what gets to go off by whether it has
-							ActiveCommand::ID dump;
 
 							//EmplaceCommand(other.entry, stage, dump, &other);
 							UpdateCommand(other, stage);
@@ -1856,6 +1848,7 @@ namespace DIMS
 				if (delay_state == DelayState::Success) {
 					//While this delay condition is off, it needs to be running by this point.
 					act->SetDelayed(false);
+					//DelayState t = (DelayState)-1;
 				}
 				else
 				{
@@ -1892,9 +1885,11 @@ namespace DIMS
 
 			//To the blocking features here, I'd like to disable them at a later point, handle this business elsewhere. Namble
 
-			if (cmd->ShouldBeBlocked() && IsStagesBlocked(cmd->GetTriggerFilter()) == true) {
-				return;
-			}
+
+			//*NOTE: I guess I can probably handle this later, but this seems to not care about precedence so I'll just add the things anyhow
+			//if (cmd->ShouldBeBlocked() && IsStagesBlocked(cmd->GetTriggerFilter()) == true) {
+			//	return;
+			//}
 			
 
 			ActiveCommand act{ cmd };
@@ -2511,6 +2506,8 @@ namespace DIMS
 			trigger5.stageFilter = EventStage::Start;
 			trigger5.args.emplace_back(std::make_unique<Argument[]>(1))[OnButton::BUTTON_ID] = Input{ RE::INPUT_DEVICE::kMouse, 0 };
 
+
+
 			InputCommand* command6 = new InputCommand;
 
 			auto& action6 = command6->actions.emplace_back();
@@ -2522,7 +2519,7 @@ namespace DIMS
 			auto& trigger6 = command6->triggers.emplace_back();
 			trigger6.priority = 40;
 			trigger6.type = TriggerType::OnButton;
-			trigger6.conflict = ConflictLevel::Defending;
+			trigger6.conflict = ConflictLevel::Following;
 			trigger6.stageFilter = EventStage::Start;
 			trigger6.args.emplace_back(std::make_unique<Argument[]>(1))[OnButton::BUTTON_ID] = Input{ RE::INPUT_DEVICE::kMouse, 1 };
 
@@ -2616,8 +2613,29 @@ namespace DIMS
 
 
 
-
 			MAKE_INPUT(ActionType::InvokeFunction, tmp_say_a_nameNEW, 20, 20, TriggerType::OnControl, ConflictLevel::Blocking, EventStage::Start, "Left Attack/Block");
+
+			//*
+			InputCommand* command2621 = new InputCommand; {
+				auto& action2620 = command2621->actions.emplace_back();
+				action2620.type = ActionType::InvokeFunction;
+				auto& args2620 = action2620.args = std::make_unique<Argument[]>(3);
+				args2620[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
+				args2620[InvokeFunction::CUST_PARAM_1] = 220;
+
+
+				auto& trigger2620 = command2621->triggers.emplace_back();
+				trigger2620.priority = 20;
+				trigger2620.type = TriggerType::OnControl;
+				trigger2620.conflict = ConflictLevel::Blocking;
+				trigger2620.stageFilter = EventStage::Start;
+				trigger2620.args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = "Left Attack/Block";
+				//trigger2620.canPendCommands = false;
+				auto& delayArgs = trigger2620.delayArgs = std::make_unique<Argument[]>(1);
+				delayArgs[OnControl::HOLD_TIME] = 1.5f;
+				something.push_back(command2621);
+			};
+			//*/
 
 
 		
@@ -2815,6 +2833,9 @@ namespace DIMS
 
 				for (MatrixType i = (MatrixType)0; i < MatrixType::Total; i++) 
 				{
+					//TODO: If I can make PrepVisitorList be able to visit lists SEPERATELY for each MatrixType that would be ideal.
+					// The current issue with this machination is states they still have plenty of data that can't be visited one at a time.
+					// actually this isn't quite true. If I just packed the function for VisitingLists in there I could accomplish this.
 					if (PrepVisitorList(list, event.event, input, control, i) == false) {
 						//If one of these blocks further inputs, it needs an active command as a reminder.
 						active_input->SetBasicFailure();

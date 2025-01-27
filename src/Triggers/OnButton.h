@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ITrigger.h"
+#include "IHoldTrigger.h"
 
 //*src
 #include "ActiveData.h"
@@ -11,7 +11,7 @@ namespace DIMS
 	struct Argument;
 	struct Parameter;
 
-	struct OnButton : public ITrigger
+	struct OnButton : public IHoldTrigger
 	{
 		//All trigger classes will have these big old parameter constants. While the names of these parameters are found
 		static constexpr auto BUTTON_ID = 0;

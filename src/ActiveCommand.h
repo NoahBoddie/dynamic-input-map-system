@@ -148,7 +148,7 @@ namespace DIMS
 
 
 			case ActiveState::Managing:
-				if (entry->GetSuccess() || (!in && !entry->IsDelayed())) {
+				if (entry->GetSuccess() || !in) {
 					SetState(ActiveState::Running);
 					entry->IncSuccess();
 				}
@@ -175,8 +175,8 @@ namespace DIMS
 		bool UpdateIfDirty() const
 		{
 			//This seems to be a good idea, mainly because updates are so cheap. Also gives me some value to play with.s
-			Update();
-			return true;
+			//Update();
+			//return true;
 			auto result = IsDirty();
 
 			if (result) {
@@ -189,7 +189,7 @@ namespace DIMS
 		{
 			UpdateIfDirty();
 			
-			return state() == ActiveState::Running && !waiters;
+			return state() == ActiveState::Running && !waiters && !entry->IsDelayed();
 		}
 
 		bool IsFailing() const

@@ -61,6 +61,16 @@ namespace DIMS
 	};
 
 
+	enum struct DelayState
+	{
+		None,			//This command has no state of delay
+		Failure,		//This command is unable to run due to failing delay conditions
+		Success,		//This command is now able to run passing delay conditions
+		Listening,		//This command is can continue querying for an end to its delay state
+		Advancing		//This command can both continue querying its delay state and innate based delay conditions
+	};
+
+
 	ENUM(TriggerType, uint8_t)
 	{
 		OnButton,
@@ -145,6 +155,7 @@ namespace DIMS
 	enum struct ConflictLevel : int8_t
 	{
 		None,			//Technically the same as sharing, but if a trigger has this, the action takes preference.
+		Following,		//Does not block, cannot be blocked, cannot be delayed, and will not pend other commands.
 		Sharing,		//Triggers registered as sharing will not block, or be stopped by blocking
 		Obliging,		//Obliging will not block other triggers, but is stopped by blocking
 		
@@ -227,10 +238,10 @@ namespace DIMS
 		Inactive	= 1 << 4,		//CommandEntries with inactive 
 		Disabled	= 1 << 5,
 		Delayed		= 1 << 6,
-
+		
 		StageFlags = CommandFlag::Started | CommandFlag::Finished,
 		RunningFlags = CommandFlag::Complete | CommandFlag::Canceled | CommandFlag::Inactive,
-
+		Instance = CommandFlag::Started | CommandFlag::Finished | CommandFlag::Complete | CommandFlag::Canceled | CommandFlag::Inactive | CommandFlag::Delayed,
 	};
 
 }
