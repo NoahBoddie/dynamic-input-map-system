@@ -2,6 +2,7 @@
 
 #include "TriggerNode.h"
 #include "ActionNode.h"
+#include "Condition/ICondition.h"
 
 namespace DIMS
 {
@@ -14,9 +15,10 @@ namespace DIMS
 		// That is, give it all the input information it needs to have to confirm it's the one.
 		std::vector<TriggerNode> triggers;
 
+		//General condition for if the repeating action actually fires or not.
 		InputMatrix* parent = nullptr;
 
-		void* conditions = nullptr;
+		ConditionPtr conditions;
 
 		std::vector<ActionNode> actions;
 

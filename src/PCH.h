@@ -120,8 +120,14 @@
 
 #include "Impl/TypeAliases.h"
 
+
+
 #include "Enums.h"
 #include "Settings.h"
+
+#define IS_DIMS
+#include "API_DIMS.h"
+#undef IS_DIMS
 
 namespace DIMS
 {

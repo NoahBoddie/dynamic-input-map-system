@@ -21,7 +21,7 @@
 
 #include "VirtualEvent.h"
 
-
+#include "Condition/ExternalCondition.h"
 
 namespace DIMS
 {
@@ -38,16 +38,84 @@ namespace DIMS
 	RE::CharEvent;
 	RE::FormID;
 
+
+
 	//May make this an actual class with the ability to restore what's stored.
 
 
 	struct ControlInterface
 	{
 		//This is a control for menu controls and player controls (maybe other controls if there are some we find.
+		union
+		{
+			RE::BSTEventSink<RE::InputEvent*>* control{};
+			RE::MenuControls* uiHandler;
+			RE::PlayerControls* gameplayHandler;
+		};
 
-		RE::BSTEventSink<RE::InputEvent*>* control{};
 	};
 
+
+
+	
+
+
+
+
+
+	inline void TestConditions(EventData&& a_data, EventFlag& flags, bool& res, const Argument& param1, const Argument& param2)
+	{
+		ConditionData data;
+
+		//double(ConditionData&, const std::span<const ArgumentVar>&)
+		auto isCrouched = [](RE::PlayerCharacter* player, ConditionData&) -> double
+			{
+				return !!player->AsActorState()->IsSneaking();
+			};
+
+		auto isArmed = [](RE::PlayerCharacter* player, ConditionData&) -> double
+			{
+				return !!player->AsActorState()->IsWeaponDrawn();
+			};
+
+		auto isStaminaHarmed = [](RE::PlayerCharacter* player, ConditionData&) -> double
+			{
+				return !!player->GetActorValueModifier(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kStamina);
+			};
+
+
+		auto isMagickHarmed = [](RE::PlayerCharacter* player, ConditionData&) -> double
+			{
+				return !!player->GetActorValueModifier(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kMagicka);
+			};
+
+
+		bool static once = false;
+		static ExternCondition conditionA;//AND
+		static auto& conditionB = conditionA.next = std::make_unique<ExternCondition>();//(OR
+		static auto& conditionC = conditionB->next = std::make_unique<ExternCondition>();//)AND
+		static auto& conditionD = conditionC->next = std::make_unique<ExternCondition>();//AND
+
+		if (!once)
+		{
+			once = true;
+			
+			conditionA.function = isCrouched;
+			conditionB->function = isStaminaHarmed;
+			conditionC->function = isMagickHarmed;
+			conditionD->function = isArmed;
+
+			conditionB->isOr = true;
+			conditionB->parenthesisGroup = 1;
+		}
+
+		bool result = conditionA.RunCondition(data);
+
+		if (result)
+			RE::DebugMessageBox("True");
+		else
+			RE::DebugMessageBox("False");
+	}
 
 
 	inline void CONTROLESQUE(RE::ControlMap* a_controls)
@@ -252,23 +320,10 @@ namespace DIMS
 
 
 
-	enum struct CompareType : uint8_t
-	{
-		//The comparison type for most default stuff is 
-
-		kEqual,
-		kLesser,
-		kGreater,
-		kNotEqual,
-		kLesserOrEqual,
-		kGreaterOrEqual,
-
-		kSecondary = 1 << 7,
-	};
 
 	struct RefreshEvent
 	{
-
+		//I think the way this will work
 
 		RefreshCode code = RefreshCode::Update;
 
@@ -450,6 +505,8 @@ namespace DIMS
 		//If the tag of customevent is -1, this means that it has no custom mapping data.
 		// Custom Mapping data is required if the control is either A
 
+		//I'd like to also store order of creation, and use this to order handle what's what in that regard.
+		// maybe attribute that to category.
 
 
 	};
@@ -857,7 +914,7 @@ namespace DIMS
 		StateLevel level = StateLevel::Smother;
 		int16_t _priority = 1;
 		tmp_Condition* condition = nullptr;
-
+		ConditionPtr truConditions;
 		std::string_view debugName;
 
 		std::set<Input> conflictList;
@@ -2620,8 +2677,8 @@ namespace DIMS
 				auto& action2620 = command2621->actions.emplace_back();
 				action2620.type = ActionType::InvokeFunction;
 				auto& args2620 = action2620.args = std::make_unique<Argument[]>(3);
-				args2620[InvokeFunction::FUNCTION_PTR] = tmp_YELL_a_nameNEW;
-				args2620[InvokeFunction::CUST_PARAM_1] = 220;
+				args2620[InvokeFunction::FUNCTION_PTR] = TestConditions;//tmp_YELL_a_nameNEW;
+				//args2620[InvokeFunction::CUST_PARAM_1] = 220;
 
 
 				auto& trigger2620 = command2621->triggers.emplace_back();
@@ -3223,7 +3280,7 @@ namespace DIMS
 	
 
 	inline MatrixController* testController = new MatrixController;
-	inline std::array<MatrixController*, (int)RE::InputContextID::kTotal> Controllers;
+	inline std::array<MatrixController*, ControlState::Total> Controllers;
 
 
 	inline void LoadTestManager()

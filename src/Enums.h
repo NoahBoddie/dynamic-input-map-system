@@ -35,13 +35,27 @@ namespace DIMS
 		Bool,
 		Int,			//32 bit
 		Float,			//32 bits
-		String,			//Stores a hash. if one wants to recover the string I may make something for that.
+		String,			
 		Form,			//A form of some kind.
-		Input,			//A raw input, including device stuff.
-		Function,
+		//Input,			//A raw input, including device stuff.
+		//Function,
 		Total,			//Total. Also used as an accept all key for arguments
 	};
 
+	enum struct CompareType : uint8_t
+	{
+		//The comparison type for most default stuff is 
+
+		kEqual,
+		kLesser,
+		kGreater,
+		kNotEqual,
+		kLesserOrEqual,
+		kGreaterOrEqual,
+
+		kSecondary = 1 << 7,
+		kOr = kSecondary,
+	};
 
 
 	enum struct MatrixType : uint8_t
@@ -95,7 +109,8 @@ namespace DIMS
 	
 		//InvokeControl,			//Invokes a specific control by name.
 		//InvokeAxis,				//Invokes a specific axis by name. If the original function is called and is a finish event, it will result in failure
-
+		//InvokeFormula,			//Calls a lexicon function
+		//InvokeModEvent,			//Sends a mod event to papyrus
 		InvokeMode,
 
 		Total,
@@ -242,6 +257,15 @@ namespace DIMS
 		StageFlags = CommandFlag::Started | CommandFlag::Finished,
 		RunningFlags = CommandFlag::Complete | CommandFlag::Canceled | CommandFlag::Inactive,
 		Instance = CommandFlag::Started | CommandFlag::Finished | CommandFlag::Complete | CommandFlag::Canceled | CommandFlag::Inactive | CommandFlag::Delayed,
+	};
+
+
+
+	ENUM(ControlState, uint8_t)
+	{
+		Gameplay,
+		MenuMode,
+		Total,
 	};
 
 }

@@ -9,6 +9,7 @@
   "dependencies": [
     "commonlibsse-ng",
     "magic-enum",
-    "xbyak"
+    "xbyak",
+    "nlohmann-json"
   ]
 }

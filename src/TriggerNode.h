@@ -3,6 +3,8 @@
 #include "Argument.h"
 #include "Parameter.h"
 
+#include "Condition/ICondition.h"
+
 //*src
 #include "TriggerInfo.h"
 
@@ -23,11 +25,13 @@ namespace DIMS
 
 
 		//rename this pls
+		//TODO: It seems TriggerNode::args is kinda just used for inputs. Please 
 		std::vector<std::unique_ptr<Argument[]>> args;//Note, maximum amount of inputs for any button is 10. thumbsticks 2, mouse 1.
 
+		//TODO: Rename "delayArgs" to something fitting like requirements.
 		std::unique_ptr<Argument[]> delayArgs;
 
-		void* conditions;//These are conditions SOLELY for the trigger in question.
+		ConditionPtr conditions;//These are conditions SOLELY for the trigger in question.
 
 		size_t GetInputCount() const
 		{

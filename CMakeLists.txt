@@ -21,7 +21,7 @@ configure_file(
         @ONLY)
 
 set(headers
-    )
+     "include/ConditionData.h" "include/API_DIMS.h" "include/Var.h")
 
 set(sources
         src/main.cpp
@@ -36,7 +36,7 @@ set(sources
         src/TestField.h
         src/TestField.cpp
 
-        ${CMAKE_CURRENT_BINARY_DIR}/version.rc "src/Triggers/ITrigger.h" "src/Triggers/OnButton.h" "src/Triggers/OnControl.h" "src/Triggers/OnControl.cpp" "src/Triggers/OnButton.cpp" "src/Triggers/ITrigger.cpp" "src/TriggerNode.h" "src/InputCommand.h" "src/ActiveCommand.h" "src/EventData.h" "src/InputInterface.h" "src/Actions/IAction.h" "src/ActionNode.h" "src/ActionInfo.h" "src/Actions/InvokeFunction.h" "src/Actions/InvokeFunction.cpp" "src/Actions/IAction.cpp" "src/CommandEntry.h" "src/EventResult.h" "src/Settings.h" "src/InputNumber.h" "src/Utility.h" "src/ActiveData.h" "src/InputQueue.h" "src/Actions/InvokeInput.h" "src/Impl/IComponent.h" "src/Actions/InvokeInput.cpp" "src/Resources.h" "src/RE/Functions.h" "src/Actions/InvokeMode.h" "src/Actions/InvokeMode.cpp" "src/Impl/TypeAliases.h" "src/InputMatrix.h" "src/InputCommand.cpp" "src/Hooks/UserEvents.h" "src/Hooks.h" "src/HashLibrary.h" "src/Triggers/OnMouseMove.h" "src/VirtualEvent.h" "src/Triggers/OnAxis.h" "src/Triggers/OnAxis.cpp" "src/Triggers/OnThumbstick.h"  "src/Triggers/OnThumbstick.cpp" "src/Triggers/IHoldTrigger.h" "src/Triggers/IHoldTrigger.cpp")
+        ${CMAKE_CURRENT_BINARY_DIR}/version.rc "src/Triggers/ITrigger.h" "src/Triggers/OnButton.h" "src/Triggers/OnControl.h" "src/Triggers/OnControl.cpp" "src/Triggers/OnButton.cpp" "src/Triggers/ITrigger.cpp" "src/TriggerNode.h" "src/InputCommand.h" "src/ActiveCommand.h" "src/EventData.h" "src/InputInterface.h" "src/Actions/IAction.h" "src/ActionNode.h" "src/ActionInfo.h" "src/Actions/InvokeFunction.h" "src/Actions/InvokeFunction.cpp" "src/Actions/IAction.cpp" "src/CommandEntry.h" "src/EventResult.h" "src/Settings.h" "src/InputNumber.h" "src/Utility.h" "src/ActiveData.h" "src/InputQueue.h" "src/Actions/InvokeInput.h" "src/Impl/IComponent.h" "src/Actions/InvokeInput.cpp" "src/Resources.h" "src/RE/Functions.h" "src/Actions/InvokeMode.h" "src/Actions/InvokeMode.cpp" "src/Impl/TypeAliases.h" "src/InputMatrix.h" "src/InputCommand.cpp" "src/Hooks/UserEvents.h" "src/Hooks.h" "src/HashLibrary.h" "src/Triggers/OnMouseMove.h" "src/VirtualEvent.h" "src/Triggers/OnAxis.h" "src/Triggers/OnAxis.cpp" "src/Triggers/OnThumbstick.h"  "src/Triggers/OnThumbstick.cpp" "src/Triggers/IHoldTrigger.h" "src/Triggers/IHoldTrigger.cpp" "src/Condition/ICondition.h" "src/Condition/ExternalCondition.h" "src/API_DIMS.cpp" "src/Condition/ConditionLibrary.h")
 
 source_group(
         TREE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -99,13 +99,16 @@ target_precompile_headers(${PROJECT_NAME}
 install(TARGETS ${PROJECT_NAME}
         DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 
-#DELETE AND MOVE
-set(RoguePath "C:/Users/Noah/Desktop/Modding/[Lab]/{Lab Tools}/RoguesGallery")
 
 
-add_subdirectory(${RoguePath} RoguesGallery)
+if (NOT LexiconSKSEPath)
+	cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH CMAKE_REPO_DIR)
+	set(LexiconSKSEPath "${CMAKE_REPO_DIR}/lexicon-skse")
+endif()
 
-add_dependencies(${PROJECT_NAME} RoguesGallery::RoguesGallery)
+add_subdirectory(${LexiconSKSEPath} LexiconSKSE)
+add_dependencies(${PROJECT_NAME} LexiconSKSE::LexiconSKSE)
+
 
 target_include_directories(
 	${PROJECT_NAME}
@@ -113,6 +116,13 @@ target_include_directories(
 		${RoguePath}/include
 )
 
+target_link_libraries(
+	${PROJECT_NAME}
+	PRIVATE
+        RoguesGallery::RoguesGallery
+        Lexicon::Lexicon
+        LexiconSKSE::LexiconSKSE
+)
 
 
 ########################################################################################################################
