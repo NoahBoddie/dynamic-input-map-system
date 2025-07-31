@@ -265,7 +265,8 @@ namespace DIMS
 	{
 		Gameplay,
 		MenuMode,
+		GameUI,
 		Total,
 	};
-
+	using ControlType = ControlState;
 }

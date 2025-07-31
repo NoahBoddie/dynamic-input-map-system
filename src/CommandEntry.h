@@ -7,7 +7,9 @@
 namespace DIMS
 {
 
-	using InputCount = int8_t;
+	struct InputMatrix;
+
+	
 
 	constexpr InputCount k_signedInput = 1 << (sizeof(InputCount) * 8 - 1);
 
@@ -43,15 +45,26 @@ namespace DIMS
 		InputCount failure = 0;
 
 
-		mutable CommandFlag flags = CommandFlag::None;
-
-
 		//This index is incremented just know this is cursed btw.
 
 
 		//Might have activeCount negative mean that it is unable to be used for the time being.
 		TriggerNode* trigger = nullptr;//because a command can have multiple trigger sets, something like this would be needed to differ them.
 		InputCommand* command = nullptr;
+		InputMatrix* parent = nullptr;
+
+		mutable CommandFlag flags = CommandFlag::None;
+		uint8_t currentMenu = -1;//The index of the menu it is locked too. Is -1 if it's locked to no menu, OR is
+		
+		bool pad[6];
+
+
+		std::optional<std::string_view> GetCurrentMenu()
+		{
+			return std::nullopt;
+		}
+
+
 
 		uint64_t priority() const
 		{
@@ -181,6 +194,8 @@ namespace DIMS
 			return GetGlobalTimestamp() == localTimestamp;
 		}
 
+
+
 		void TryResetStages() const
 		{
 			if (trigger->GetInputCount() == GetInputRef()) {
@@ -190,6 +205,24 @@ namespace DIMS
 
 			}
 		}
+
+
+		void TryResetMenu()
+		{
+			if (trigger->GetInputCount() == GetInputRef()) {
+				
+				currentMenu = -1;
+			}
+		}
+
+		void TryInputReset()
+		{
+			if (trigger->GetInputCount() == GetInputRef()) {
+				TryResetStages();
+				TryResetMenu();
+			}
+		}
+
 
 		void ResetExecute() const
 		{
@@ -480,6 +513,12 @@ namespace DIMS
 
 
 
+
+
+		bool ShouldUpdate() const
+		{
+			return command->ShouldUpdate();
+		}
 
 		bool CanHandleEvent(RE::InputEvent* event) const
 		{

@@ -23,6 +23,8 @@
 
 #include "Condition/ExternalCondition.h"
 
+#include "ControlInterface.h"
+
 namespace DIMS
 {
 	//Lookup types
@@ -37,23 +39,6 @@ namespace DIMS
 	RE::BSInputDeviceManager;
 	RE::CharEvent;
 	RE::FormID;
-
-
-
-	//May make this an actual class with the ability to restore what's stored.
-
-
-	struct ControlInterface
-	{
-		//This is a control for menu controls and player controls (maybe other controls if there are some we find.
-		union
-		{
-			RE::BSTEventSink<RE::InputEvent*>* control{};
-			RE::MenuControls* uiHandler;
-			RE::PlayerControls* gameplayHandler;
-		};
-
-	};
 
 
 
@@ -156,13 +141,6 @@ namespace DIMS
 			use_events->pad001, use_events->pad002, use_events->pad004);
 
 		constexpr auto test = offsetof(RE::UserEvents, pad001);
-	}
-
-
-	inline void ExecuteInput(RE::PlayerControls* controls, InputInterface& event)
-	{
-		RE::ExecuteInput(controls, event);
-		RE::UnkFunc01(controls);
 	}
 
 
@@ -305,15 +283,15 @@ namespace DIMS
 			}
 
 		};
-
+		
 		InputMode()
 		{
 			type = MatrixType::Mode;
 		}
 
-		Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+		Instance* GetControlInstance(InstanceID id, bool create_if_required = false) override
 		{
-			return LoadInstance<Instance>(context, create_if_required);
+			return LoadInstance<Instance>(id, create_if_required);
 		}
 
 	};
@@ -426,7 +404,7 @@ namespace DIMS
 		};
 
 
-		static void Create(const RE::BSFixedString& event_name, std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index)
+		static void Create(const RE::BSFixedString& event_name, std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index = std::nullopt)
 		{
 			//Please make this handle nothing if it doesn't warrant a handle
 
@@ -441,7 +419,7 @@ namespace DIMS
 
 			auto& next = nextIndexMap[result.fileHash];
 
-			result._id = next = a_index.value_or(next++);
+			result._id = next = !a_index ? next++ : a_index.value();
 
 			return;
 		}
@@ -603,6 +581,19 @@ namespace DIMS
 			indexInContext = -1;
 		}
 
+
+		CustomEvent(const RE::BSFixedString& event_name, uint16_t input, uint16_t mod, RE::UserEventFlag flags, bool remap)
+		{
+			//This needs some other settable data, such as remappable
+			Ctor();
+			eventID = event_name;
+			indexInContext = -1;
+			inputKey = input;
+			modifier = mod;
+			userEventGroupFlag = flags;
+			remappable = remap;
+		}
+
 		CustomEvent(const RE::BSFixedString& event_name, std::string_view a_filename, std::string_view a_category, std::optional<uint8_t> a_index, bool remap)
 		{
 			//This needs some other settable data, such as remappable
@@ -693,7 +684,7 @@ namespace DIMS
 
 				for (auto parent : GetBaseObject()->parents)
 				{
-					parent->ObtainContextInstance(context)->SetInputEnabled(input, value);
+					parent->ObtainControlInstance(id)->SetInputEnabled(input, value);
 				}
 			}
 
@@ -711,7 +702,7 @@ namespace DIMS
 
 				for (auto parent : GetBaseObject()->parents)
 				{
-					parent->ObtainContextInstance(context)->SetAllInputsEnabled(value);
+					parent->ObtainControlInstance(id)->SetAllInputsEnabled(value);
 				}
 			}
 
@@ -809,7 +800,7 @@ namespace DIMS
 
 				for (auto parent : GetBaseObject()->parents)
 				{
-					auto add = parent->ObtainContextInstance(context)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
+					auto add = parent->ObtainControlInstance(id)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
 
 					if (add.size() != 0)
 						result.append_range(add);
@@ -883,7 +874,7 @@ namespace DIMS
 
 				for (auto& parent : settings->parents)
 				{
-					parent->ObtainContextInstance(context)->LoadVisitorList(list, input, control, _winner);
+					parent->ObtainControlInstance(id)->LoadVisitorList(list, input, control, _winner);
 				}
 
 
@@ -896,9 +887,9 @@ namespace DIMS
 			type = MatrixType::State;
 		}
 
-		Instance* GetContextInstance(RE::InputContextID context, bool create_if_required = false) override
+		Instance* GetControlInstance(InstanceID id, bool create_if_required = false) override
 		{
-			return LoadInstance<Instance>(context, create_if_required);
+			return LoadInstance<Instance>(id, create_if_required);
 		}
 
 
@@ -1222,7 +1213,7 @@ namespace DIMS
 		// So basically one for menu, one for gameplay, maybe other states. The gist is this is a maker.
 
 
-
+		//Manager isn't quite the proper name.
 
 
 
@@ -1283,10 +1274,10 @@ namespace DIMS
 
 	
 
-
+		//TODO: This thing requires an instance id
 		void Update(RefreshCode code, RefreshData data1, RefreshData data2 = 0)
 		{
-			constexpr auto context = RE::InputContextID::kGameplay;
+			constexpr auto k_state = ControlState::Gameplay;
 
 			std::span<InputState::Instance*> limits{ activeStates };
 
@@ -1309,7 +1300,7 @@ namespace DIMS
 				//How do we handle updates?
  				//First, we get the 
 				//if ()
-				updateList.append_range(header->ObtainContextInstance(context)->GetViableStates(code, data1.value, data2.value, limits, winner, change));
+				updateList.append_range(header->ObtainControlInstance(k_state)->GetViableStates(code, data1.value, data2.value, limits, winner, change));
 			}
 
 			//if the event has done nothing, forgo all this.
@@ -1353,6 +1344,9 @@ namespace DIMS
 
 		bool PrepVisitorList(detail::VisitorList& list, RE::InputEvent* event, Input input, Input control)
 		{
+			if (!manager)
+				return true;
+
 			CheckUpdate();
 			
 			bool result = true;
@@ -2281,9 +2275,15 @@ namespace DIMS
 
 
 
+
 	class MatrixController
 	{
+		//TODO: Matrix controller needs to be split between 2 different types, gameplay and menu. Menu wont have defaults or selectable matrices
+		//There will be controls generated that are attached to specific menus in the menu version, that exist as extensions of an existing menu.
+		// Note, this has to happen like this because inputs really only work as a system to send messages to the menus
 	public:
+
+
 
 		//0 for no mode currently loaded.
 		
@@ -2294,12 +2294,6 @@ namespace DIMS
 
 		//This will be the object that controls all the inputs arrangement. Data such as who's capturing an input and such will be loaded here.
 		
-		//This is the matrix that one selects to use. Basically 
-		InputMatrix* defaultMatrix = nullptr;//This is allowed to be null.
-
-		//If this is null it will pass go.
-		MatrixMap selectedMatrix;
-
 
 		//Having an extra map here that basically serves as the pending release map might be useful.
 		// That, or having a given active input dump all of it's command inputs. I think this actually might be a good idea,
@@ -2344,7 +2338,9 @@ namespace DIMS
 
 		std::vector<InputMode::Instance*> modeMaps;//The last mode is most important.
 
-		RE::InputContextID context;
+		virtual ~MatrixController() = default;
+
+		virtual InstanceID GetInstanceID() const = 0;
 
 
 		void EmplaceMode(InputMode* mode, CommandEntryPtr& command, bool strengthen) 
@@ -2355,7 +2351,7 @@ namespace DIMS
 			it = std::find_if(it, end, [&](InputMode::Instance* i) {return i->source == command && i->GetBaseObject() == mode; });
 
 			if (it == end) {
-				auto& config = modeMaps.emplace_back(mode->ObtainContextInstance(k_gameplayContext));
+				auto& config = modeMaps.emplace_back(mode->ObtainControlInstance(GetInstanceID()));
 				config->source = command;
 				config->isStrong = strengthen;
 
@@ -2446,8 +2442,585 @@ namespace DIMS
 
 
 
+		ActiveInput& ObtainActiveInput(Input input)
+		{
+			if (input.IsUserEvent() == true)
+				throw std::exception("Cannot obtain active input for control");
 
-		MatrixController()
+			auto& ptr = activeMap[input];
+
+			if (!ptr)
+				ptr = std::make_unique<ActiveInput>();
+
+			return *ptr;
+		}
+
+		//Takes input because it is genuinely easier to do it like this.
+		bool ClearActiveInput(Input input)
+		{
+			if (input.IsUserEvent() == true)
+				throw std::exception("Cannot obtain active input for control");
+			
+			//Later, this will very likely stick around and clear itself instead. For now, this works.
+
+
+			return activeMap.erase(input);
+			
+		}
+
+		bool ClearActiveInput(decltype(activeMap)::iterator& it)
+		{
+			auto test = activeMap.erase(it);
+			//auto result = test == it;
+			it = test;
+			return true;
+
+		}
+
+		//I'm actually not sure if I'll even need this. SO I'm holding off on it for now.
+		bool UpdateDelayedInputs()
+		{
+			for (auto it = delayList.begin(); it != delayList.end(); ) {
+				auto found = activeMap.find(*it);
+				
+				if (activeMap.end() == found || found->second->UpdateDelayed() == true) {
+					it = delayList.erase(it);
+				}
+				else {
+					++it;
+				}
+			}
+			//I would desperately lik
+			return delayList.size();
+		}
+
+		void CheckRelease(ControlInterface controls, InputInterface& event, Input input)
+		{
+			auto it = activeMap.begin();
+			auto end = activeMap.end();
+			it = activeMap.find(input);
+			
+			if (it == end)
+				return;
+
+
+			auto pair = event.GetEventValues();
+
+			if (it->second->IsInitialized() == false){
+				//This is for when tap comes into play. It's characterized by having an ActiveInput but no initialization.
+				logger::warn("This isn't supposed to happen yet");
+				it->second->Initialize(pair.first, pair.second);
+				return;
+			}
+
+			if (event->eventType == RE::INPUT_EVENT_TYPE::kButton)
+				event.SetEventValues(0, it->second->data.SecondsHeld());
+			else
+				event.SetEventValues(0, 0);
+
+			//Incrementing and decrementing static time will allow this to not interfer with later entries.
+			CommandEntry::IncStaticTimestamp();
+
+			HandleEvent(controls, event);
+
+			CommandEntry::DecStaticTimestamp();
+
+			event.SetEventValues(pair.first, pair.second);
+		}
+
+
+
+		bool IsLayerBlocked(std::array<ActiveCommand*, EventStage::Total> blocks, ActiveCommand& other, EventStage stages)
+		{
+			//Ease of use function so I don't have to search for the active command every time
+
+			if (stages)
+			{
+				for (auto x = 1, y = 0; x < EventStage::Total; x <<= 1, y++)
+				{
+					auto block = blocks[y];
+
+					if (!block)
+						continue;
+
+					if (stages & x && 
+						block != &other && 
+						block->entry->command->CompareOrder(other->command)._Value >= std::strong_ordering::equal._Value
+						//blocks[y]->entry->GetParentType() <= other->GetParentType()
+						) {
+						return true;
+					}
+
+				}
+			}
+			return false;
+		}
+
+
+
+		bool HandleEvent(ControlInterface controls, InputInterface event)
+		{
+			//HandleEvent is basically the core driving function. It takes the player controls, and the given input event, as well as an
+			// InputEvent that is mutated to be refired.
+			// it will return true if it intends to fire the original function, and will do so with the out function if present.
+			// if it's true and the out function isn't there, it will fire as normal.
+
+			//I think I'll put the interface object here, along with the event data.
+
+			
+			EventStage stage = event.GetEventStage();
+
+			if (stage == EventStage::None)
+				return true;
+
+
+			Input input = Input::CreateInput(event);
+			Input control = Input::CreateUserEvent(event);
+
+			//This isn't good to use, stop using it.
+			if (stage == EventStage::Start) {
+				CheckRelease(controls, event, input);
+			}
+
+
+			ControlState state = controls.GetState();
+
+
+			ActiveInputHandle active_input{ input, activeMap, event.GetEventValues() };
+
+
+			bool allow_execute = true;
+
+
+			
+
+			EventFlag flags = EventFlag::None;
+
+			bool blocking = false;
+			
+
+			bool block_ = false;
+
+			size_t hash = 0;//starts as zero so it will always need to load the first time.
+
+			bool execute_basic = true;
+
+
+			if (stage == EventStage::Start)
+			{
+				detail::VisitorList list;
+
+				for (MatrixType i = (MatrixType)0; i < MatrixType::Total; i++) 
+				{
+					//TODO: If I can make PrepVisitorList be able to visit lists SEPERATELY for each MatrixType that would be ideal.
+					// The current issue with this machination is states they still have plenty of data that can't be visited one at a time.
+					// actually this isn't quite true. If I just packed the function for VisitingLists in there I could accomplish this.
+					if (PrepVisitorList(list, event.event, input, control, i) == false) {
+						//If one of these blocks further inputs, it needs an active command as a reminder.
+						active_input->SetBasicFailure();
+						break;
+					}
+				}
+
+				
+				VisitLists([&](CommandEntryPtr entry, bool& should_continue)
+				{
+					if (entry->GetRealInputRef() > 1) {
+						entry->IsActive();
+					}
+
+					if (!entry->IsActive() && entry->IsEnabled() && entry->CanHandleEvent(event) == true) {
+						active_input->MakeCommand(entry, stage);
+					}
+
+				}, list);
+			}
+			else if (active_input)
+			{
+				active_input->Update(stage);
+			}
+
+
+			if (active_input)
+			{
+				std::array<ActiveCommand*, EventStage::Total> blocks = active_input->GetAllBlockCommands();
+
+
+				active_input->VisitActiveCommands([&](ActiveCommand& act)
+				{
+
+					if (act.entry->ShouldUpdate() == false)
+						return;
+
+					act.SetEarlyExit(false);
+
+
+					//For merely being present, regardless if it's blocked or not, it will prevent the original from going off.
+					// Guarding and defending are the same thing here, btw. They shouldn't be seperate.
+					if (act->ShouldBlockNative() == true)
+						active_input->SetBasicFailure();
+					
+						
+					{
+
+						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+						// computing needed to process things that will never come into success.
+
+						auto trigger_stages = act->GetTriggerFilter();
+
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, trigger_stages) == false)
+						{
+							bool executed = false;
+
+							for (EventStage i = act.HasWaited() ? EventStage::Start : stage; i <= stage; i <<= 1)
+							{
+								if (trigger_stages & i)
+								{
+									if (i == EventStage::Finish && act->GetSuccess() > 1) {
+										//We'll want to let input go but not fire the action.
+										logger::info("Retaining at success level {}", act->GetSuccess());
+										break;
+									}
+
+
+									{
+
+										EventData data{ this, act.entry, &active_input->data, event, i };
+
+										act.entry->RepeatExecute(data, flags, executed);
+									}
+								}
+							}
+						}
+						act.ClearWaiting();
+					}
+
+
+
+				});
+
+				if (active_input->IsBasicRunning() == false)
+				{
+					execute_basic = false;
+					active_input->SetRedoStage(stage);
+				}
+				else if (auto redo = active_input->GetRedoStages(); redo) {
+					auto pair = active_input->GetInputValues();
+					auto backup = pair;
+					
+					for (EventStage i = EventStage::Start; i < EventStage::Last; i <<= 1)
+					{
+						if (redo & i && i != stage)
+						{
+							if (i == EventStage::Start) {
+								backup = event.GetEventValues();
+								event.SetEventValues(pair.first, pair.second);
+							}
+
+
+							controls.ExecuteInput(event);
+							
+							if (i == EventStage::Start) {
+								event.SetEventValues(backup.first, backup.second);
+							}
+						}
+					}
+
+					active_input->ClearRedoStages();
+				}
+
+			}
+
+
+			if (stage == EventStage::Finish) {
+				ClearActiveInput(input);
+			}
+
+			return execute_basic;
+		}
+
+		void ReleaseInput(decltype(activeMap)::iterator& it)
+		{
+
+			VirtualEvent virtual_input;
+
+			//InputInterface event{ button.get(), a_controls };
+			InputInterface event{ &virtual_input };
+
+
+			bool purge = true;
+
+			auto dump = it->first;
+			auto& active = it->second;
+
+			EventFlag flags = EventFlag::None;
+
+			Input input = dump;
+
+			virtual_input.device = input.device;
+			virtual_input.heldDownSecs = active->data.SecondsHeld();
+
+			//button->device = input.device;
+			//button->heldDownSecs = active->data.SecondsHeld();
+
+			auto blocks = active->GetAllBlockCommands();
+
+			active->VisitActiveCommands([&](ActiveCommand& act)
+				{
+					if (act->GetTriggerFilter() & EventStage::Finish)
+					{
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
+						{
+							//if (act.stages & EventStage::Finish) {
+							if (act->HasVisitedStage(EventStage::Finish) == true) {
+								//This already processed a finish, no need.
+								return;
+							}
+
+
+							if (act.HasEarlyExit() == false) {
+								purge = false;
+								return;
+							}
+
+
+
+							//TODO: A genuine input check would be better here, because successes may not have registered yet.
+							//This seems to work, but have an issue where it only works if one is removed, then the other.
+
+							if (act->GetSuccess() > 1) {
+								//We'll want to let input go but not fire the action.
+								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+								return;
+							}
+							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+
+
+							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+							// computing needed to process things that will never come into success.
+
+							//if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) 
+							{
+								//if (!block_ || act.entry->ShouldBeBlocked() == false) {
+
+								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
+
+								if (!act.entry->Execute(data, flags)) {
+									//This should do something, but currently I'm unsure what exactly.
+									//allow_execute
+								}
+							}
+						}
+					}
+				});
+
+
+			if (!purge || ClearActiveInput(it) == false) {
+				++it;
+			}
+		}
+
+		void HandleRelease()
+		{
+			//Emplaces can be handled here. Please handle them.
+			
+			//TODO: HandleRelease has a small issue in that when it happens it happens regardless if it's actually been updated or not.
+
+			bool block_;
+
+			size_t hash = 0;
+
+			std::unique_ptr<RE::ButtonEvent> button{ RE::ButtonEvent::Create(RE::INPUT_DEVICES::kNone, "", 0, 0, 0) };
+
+			VirtualEvent virtual_input;
+
+			//InputInterface event{ button.get(), a_controls };
+			InputInterface event{ &virtual_input };
+
+
+			//PLEASE note, delay event refiring cannot happen here as proper, because emplace command is not happening. So, 
+			// I need to divide that function in such a way that I can use it's components.
+
+			for (auto it = activeMap.begin(); it != activeMap.end(); ) {
+				ReleaseInput(it);
+				continue;
+				
+				bool purge = true;
+				
+				auto dump = it->first;
+				auto& active = it->second;
+				
+				EventFlag flags = EventFlag::None;
+
+				Input input = dump;
+
+				virtual_input.device = input.device;
+				virtual_input.heldDownSecs = active->data.SecondsHeld();
+
+				//button->device = input.device;
+				//button->heldDownSecs = active->data.SecondsHeld();
+
+				auto blocks = active->GetAllBlockCommands();
+
+				active->VisitActiveCommands([&](ActiveCommand& act)
+				{
+					if (act->GetTriggerFilter() & EventStage::Finish)
+					{
+						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
+						{
+							//if (act.stages & EventStage::Finish) {
+							if (act->HasVisitedStage(EventStage::Finish) == true) {
+								//This already processed a finish, no need.
+								return;
+							}
+
+
+							if (act.HasEarlyExit() == false) {
+								purge = false;
+								return;
+							}
+
+
+
+							//TODO: A genuine input check would be better here, because successes may not have registered yet.
+							//This seems to work, but have an issue where it only works if one is removed, then the other.
+
+							if (act->GetSuccess() > 1) {
+								//We'll want to let input go but not fire the action.
+								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+								return;
+							}
+							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
+
+
+							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
+							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
+							// computing needed to process things that will never come into success.
+
+							{
+								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
+
+								if (!act.entry->Execute(data, flags)) {
+									//This should do something, but currently I'm unsure what exactly.
+									//allow_execute
+								}
+							}
+						}
+					}
+				});
+
+				
+				if (!purge || ClearActiveInput(it) == false) {
+					++it;
+				}
+			}
+		}
+
+		void QueueRelease()
+		{
+			//*
+			for (auto it = activeMap.begin(); it != activeMap.end(); it++) {
+			
+				Input input = it->first;
+				auto& active = it->second;
+
+				active->VisitActiveCommands([&](ActiveCommand& act)
+				{
+					//This actually needs to work for the individual active entry.
+
+					//For each entry active, try to mark it for release.
+					
+					//act->ResetExecute();
+					act.SetEarlyExit(true);
+				});
+			}
+			//*/
+		}
+
+
+
+		void QueueAxisRelease()
+		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
+
+			auto control_map = RE::ControlMap::GetSingleton();
+
+			//I just remembered, we don't actually care about the control, it's the input we're trying to clear.
+			constexpr Input axisInputs[]{
+				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
+				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
+				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
+			};
+			
+			for (auto input : axisInputs)
+			{
+				auto end = activeMap.end();
+				auto it = activeMap.find(input);
+
+				if (it == end)
+					continue;
+
+				auto& active = it->second;
+
+				active->VisitActiveCommands([&](ActiveCommand& act)
+					{
+						//This actually needs to work for the individual active entry.
+
+						//For each entry active, try to mark it for release.
+
+						//act->ResetExecute();
+						act.SetEarlyExit(true);
+					});
+			}
+		}
+
+		void ReleaseAxis()
+		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
+
+			//TODO: Generalize this pls
+			constexpr Input axisInputs[]{
+				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
+				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
+				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
+			};
+
+			for (auto input : axisInputs)
+			{
+				auto end = activeMap.end();
+				auto it = activeMap.find(input);
+
+				if (it == end)
+					continue;
+
+				ReleaseInput(it);
+			}
+		}
+
+
+		//The axis release version of Handle Release should have a "ReleaseInput" function, it should use the iterator to do it's business. Also being
+		// able to push it.
+
+	};
+	
+	class GameplayController : public MatrixController
+	{
+	public:
+		//I want to make a function to access these
+
+		//This is the matrix that one selects to use. Basically 
+		InputMatrix* defaultMatrix = nullptr;//This is allowed to be null.
+
+		//If this is null it will pass go.
+		MatrixMap selectedMatrix;
+
+		InstanceID GetInstanceID() const override
+		{
+			return ControlState::Gameplay;
+		}
+
+		
+		GameplayController()
 		{
 
 #define MAKE_INPUT(mc_action, mc_func, mc_aParam, mc_priority, mc_trigger, mc_conflict, mc_tFilter, mc_tParam)\
@@ -2721,567 +3294,141 @@ namespace DIMS
 			//dynamicMap[Input{ RE::INPUT_DEVICE::kMouse, 1 }] = {};
 		}
 
-
-		ActiveInput& ObtainActiveInput(Input input)
-		{
-			if (input.IsUserEvent() == true)
-				throw std::exception("Cannot obtain active input for control");
-
-			auto& ptr = activeMap[input];
-
-			if (!ptr)
-				ptr = std::make_unique<ActiveInput>();
-
-			return *ptr;
-		}
-
-		//Takes input because it is genuinely easier to do it like this.
-		bool ClearActiveInput(Input input)
-		{
-			if (input.IsUserEvent() == true)
-				throw std::exception("Cannot obtain active input for control");
-			
-			//Later, this will very likely stick around and clear itself instead. For now, this works.
-
-
-			return activeMap.erase(input);
-			
-		}
-
-		bool ClearActiveInput(decltype(activeMap)::iterator& it)
-		{
-			auto test = activeMap.erase(it);
-			//auto result = test == it;
-			it = test;
-			return true;
-
-		}
-
-		//I'm actually not sure if I'll even need this. SO I'm holding off on it for now.
-		bool UpdateDelayedInputs()
-		{
-			for (auto it = delayList.begin(); it != delayList.end(); ) {
-				auto found = activeMap.find(*it);
-				
-				if (activeMap.end() == found || found->second->UpdateDelayed() == true) {
-					it = delayList.erase(it);
-				}
-				else {
-					++it;
-				}
-			}
-			//I would desperately lik
-			return delayList.size();
-		}
-
-		void CheckRelease(RE::PlayerControls* controls, InputInterface& event, Input input)
-		{
-			auto it = activeMap.begin();
-			auto end = activeMap.end();
-			it = activeMap.find(input);
-			
-			if (it == end)
-				return;
-
-
-			auto pair = event.GetEventValues();
-
-			if (it->second->IsInitialized() == false){
-				//This is for when tap comes into play. It's characterized by having an ActiveInput but no initialization.
-				logger::warn("This isn't supposed to happen yet");
-				it->second->Initialize(pair.first, pair.second);
-				return;
-			}
-
-			if (event->eventType == RE::INPUT_EVENT_TYPE::kButton)
-				event.SetEventValues(0, it->second->data.SecondsHeld());
-			else
-				event.SetEventValues(0, 0);
-
-			//Incrementing and decrementing static time will allow this to not interfer with later entries.
-			CommandEntry::IncStaticTimestamp();
-
-			HandleEvent(controls, event);
-
-			CommandEntry::DecStaticTimestamp();
-
-			event.SetEventValues(pair.first, pair.second);
-		}
-
-
-
-		bool IsLayerBlocked(std::array<ActiveCommand*, EventStage::Total> blocks, ActiveCommand& other, EventStage stages)
-		{
-			//Ease of use function so I don't have to search for the active command every time
-
-			if (stages)
-			{
-				for (auto x = 1, y = 0; x < EventStage::Total; x <<= 1, y++)
-				{
-					auto block = blocks[y];
-
-					if (!block)
-						continue;
-
-					if (stages & x && 
-						block != &other && 
-						block->entry->command->CompareOrder(other->command)._Value >= std::strong_ordering::equal._Value
-						//blocks[y]->entry->GetParentType() <= other->GetParentType()
-						) {
-						return true;
-					}
-
-				}
-			}
-			return false;
-		}
-
-
-
-		bool HandleEvent(RE::PlayerControls* controls, InputInterface event)
-		{
-			//HandleEvent is basically the core driving function. It takes the player controls, and the given input event, as well as an
-			// InputEvent that is mutated to be refired.
-			// it will return true if it intends to fire the original function, and will do so with the out function if present.
-			// if it's true and the out function isn't there, it will fire as normal.
-
-			//I think I'll put the interface object here, along with the event data.
-
-			
-			EventStage stage = event.GetEventStage();
-
-			if (stage == EventStage::None)
-				return true;
-
-
-			Input input = Input::CreateInput(event);
-			Input control = Input::CreateUserEvent(event);
-
-			//This isn't good to use, stop using it.
-			if (stage == EventStage::Start) {
-				CheckRelease(controls, event, input);
-			}
-
-
-
-			ActiveInputHandle active_input{ input, activeMap, event.GetEventValues() };
-
-
-			bool allow_execute = true;
-
-
-			
-
-			EventFlag flags = EventFlag::None;
-
-			bool blocking = false;
-			
-
-			bool block_ = false;
-
-			size_t hash = 0;//starts as zero so it will always need to load the first time.
-
-			bool execute_basic = true;
-
-
-			if (stage == EventStage::Start)
-			{
-				detail::VisitorList list;
-
-				for (MatrixType i = (MatrixType)0; i < MatrixType::Total; i++) 
-				{
-					//TODO: If I can make PrepVisitorList be able to visit lists SEPERATELY for each MatrixType that would be ideal.
-					// The current issue with this machination is states they still have plenty of data that can't be visited one at a time.
-					// actually this isn't quite true. If I just packed the function for VisitingLists in there I could accomplish this.
-					if (PrepVisitorList(list, event.event, input, control, i) == false) {
-						//If one of these blocks further inputs, it needs an active command as a reminder.
-						active_input->SetBasicFailure();
-						break;
-					}
-				}
-
-				
-				VisitLists([&](CommandEntryPtr entry, bool& should_continue)
-				{
-					if (entry->GetRealInputRef() > 1) {
-						entry->IsActive();
-					}
-
-					if (!entry->IsActive() && entry->IsEnabled() && entry->CanHandleEvent(event) == true) {
-						active_input->MakeCommand(entry, stage);
-					}
-
-				}, list);
-			}
-			else if (active_input)
-			{
-				active_input->Update(stage);
-			}
-
-
-			if (active_input)
-			{
-				std::array<ActiveCommand*, EventStage::Total> blocks = active_input->GetAllBlockCommands();
-
-
-				active_input->VisitActiveCommands([&](ActiveCommand& act)
-				{
-
-					act.SetEarlyExit(false);
-
-
-					//For merely being present, regardless if it's blocked or not, it will prevent the original from going off.
-					// Guarding and defending are the same thing here, btw. They shouldn't be seperate.
-					if (act->ShouldBlockNative() == true)
-						active_input->SetBasicFailure();
-					
-						
-					{
-
-						//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
-						// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
-						// computing needed to process things that will never come into success.
-
-						auto trigger_stages = act->GetTriggerFilter();
-
-						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, trigger_stages) == false)
-						{
-							bool executed = false;
-
-							for (EventStage i = act.HasWaited() ? EventStage::Start : stage; i <= stage; i <<= 1)
-							{
-								if (trigger_stages & i)
-								{
-									if (i == EventStage::Finish && act->GetSuccess() > 1) {
-										//We'll want to let input go but not fire the action.
-										logger::info("Retaining at success level {}", act->GetSuccess());
-										break;
-									}
-
-
-									{
-
-										EventData data{ this, act.entry, &active_input->data, event, i };
-
-										act.entry->RepeatExecute(data, flags, executed);
-									}
-								}
-							}
-						}
-						act.ClearWaiting();
-					}
-
-
-
-				});
-
-				if (active_input->IsBasicRunning() == false)
-				{
-					execute_basic = false;
-					active_input->SetRedoStage(stage);
-				}
-				else if (auto redo = active_input->GetRedoStages(); redo) {
-					auto pair = active_input->GetInputValues();
-					auto backup = pair;
-					
-					for (EventStage i = EventStage::Start; i < EventStage::Last; i <<= 1)
-					{
-						if (redo & i && i != stage)
-						{
-							if (i == EventStage::Start) {
-								backup = event.GetEventValues();
-								event.SetEventValues(pair.first, pair.second);
-							}
-
-
-							ExecuteInput(controls, event);
-							
-							if (i == EventStage::Start) {
-								event.SetEventValues(backup.first, backup.second);
-							}
-						}
-					}
-
-					active_input->ClearRedoStages();
-				}
-
-			}
-
-
-			if (stage == EventStage::Finish) {
-				ClearActiveInput(input);
-			}
-
-			return execute_basic;
-		}
-
-		void ReleaseInput(RE::PlayerControls* a_controls, decltype(activeMap)::iterator& it)
-		{
-
-			VirtualEvent virtual_input;
-
-			//InputInterface event{ button.get(), a_controls };
-			InputInterface event{ &virtual_input };
-
-
-			bool purge = true;
-
-			auto dump = it->first;
-			auto& active = it->second;
-
-			EventFlag flags = EventFlag::None;
-
-			Input input = dump;
-
-			virtual_input.device = input.device;
-			virtual_input.heldDownSecs = active->data.SecondsHeld();
-
-			//button->device = input.device;
-			//button->heldDownSecs = active->data.SecondsHeld();
-
-			auto blocks = active->GetAllBlockCommands();
-
-			active->VisitActiveCommands([&](ActiveCommand& act)
-				{
-					if (act->GetTriggerFilter() & EventStage::Finish)
-					{
-						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
-						{
-							//if (act.stages & EventStage::Finish) {
-							if (act->HasVisitedStage(EventStage::Finish) == true) {
-								//This already processed a finish, no need.
-								return;
-							}
-
-
-							if (act.HasEarlyExit() == false) {
-								purge = false;
-								return;
-							}
-
-
-
-							//TODO: A genuine input check would be better here, because successes may not have registered yet.
-							//This seems to work, but have an issue where it only works if one is removed, then the other.
-
-							if (act->GetSuccess() > 1) {
-								//We'll want to let input go but not fire the action.
-								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
-								return;
-							}
-							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
-
-
-							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
-							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
-							// computing needed to process things that will never come into success.
-
-							//if (!active->IsStageBlockedHashed(block_, hash, act.id(), EventStage::Finish) || act.entry->ShouldBeBlocked() == false) 
-							{
-								//if (!block_ || act.entry->ShouldBeBlocked() == false) {
-
-								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
-
-								if (!act.entry->Execute(data, flags)) {
-									//This should do something, but currently I'm unsure what exactly.
-									//allow_execute
-								}
-							}
-						}
-					}
-				});
-
-
-			if (!purge || ClearActiveInput(it) == false) {
-				++it;
-			}
-		}
-
-		void HandleRelease(RE::PlayerControls* a_controls)
-		{
-			//Emplaces can be handled here. Please handle them.
-			
-			//TODO: HandleRelease has a small issue in that when it happens it happens regardless if it's actually been updated or not.
-
-			bool block_;
-
-			size_t hash = 0;
-
-			std::unique_ptr<RE::ButtonEvent> button{ RE::ButtonEvent::Create(RE::INPUT_DEVICES::kNone, "", 0, 0, 0) };
-
-			VirtualEvent virtual_input;
-
-			//InputInterface event{ button.get(), a_controls };
-			InputInterface event{ &virtual_input };
-
-
-			//PLEASE note, delay event refiring cannot happen here as proper, because emplace command is not happening. So, 
-			// I need to divide that function in such a way that I can use it's components.
-
-			for (auto it = activeMap.begin(); it != activeMap.end(); ) {
-				ReleaseInput(a_controls, it);
-				continue;
-				
-				bool purge = true;
-				
-				auto dump = it->first;
-				auto& active = it->second;
-				
-				EventFlag flags = EventFlag::None;
-
-				Input input = dump;
-
-				virtual_input.device = input.device;
-				virtual_input.heldDownSecs = active->data.SecondsHeld();
-
-				//button->device = input.device;
-				//button->heldDownSecs = active->data.SecondsHeld();
-
-				auto blocks = active->GetAllBlockCommands();
-
-				active->VisitActiveCommands([&](ActiveCommand& act)
-				{
-					if (act->GetTriggerFilter() & EventStage::Finish)
-					{
-						if (!act.entry->ShouldBeBlocked() || IsLayerBlocked(blocks, act, EventStage::Finish) == false)
-						{
-							//if (act.stages & EventStage::Finish) {
-							if (act->HasVisitedStage(EventStage::Finish) == true) {
-								//This already processed a finish, no need.
-								return;
-							}
-
-
-							if (act.HasEarlyExit() == false) {
-								purge = false;
-								return;
-							}
-
-
-
-							//TODO: A genuine input check would be better here, because successes may not have registered yet.
-							//This seems to work, but have an issue where it only works if one is removed, then the other.
-
-							if (act->GetSuccess() > 1) {
-								//We'll want to let input go but not fire the action.
-								logger::info("Retaining at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
-								return;
-							}
-							logger::info("Releasing at success level {} {:X}", act->GetSuccess(), (uintptr_t)act.entry.get());
-
-
-							//As before but even more so, I'm REALLY digging the idea of putting this in active inputs.
-							// Doing so would prevent these from ever forming as an activeCommand, and thus cutdown on the amount of
-							// computing needed to process things that will never come into success.
-
-							{
-								EventData data{ this, act.entry, &active->data, event, EventStage::Finish };
-
-								if (!act.entry->Execute(data, flags)) {
-									//This should do something, but currently I'm unsure what exactly.
-									//allow_execute
-								}
-							}
-						}
-					}
-				});
-
-				
-				if (!purge || ClearActiveInput(it) == false) {
-					++it;
-				}
-			}
-		}
-
-		void QueueRelease()
-		{
-			//*
-			for (auto it = activeMap.begin(); it != activeMap.end(); it++) {
-			
-				Input input = it->first;
-				auto& active = it->second;
-
-				active->VisitActiveCommands([&](ActiveCommand& act)
-				{
-					//This actually needs to work for the individual active entry.
-
-					//For each entry active, try to mark it for release.
-					
-					//act->ResetExecute();
-					act.SetEarlyExit(true);
-				});
-			}
-			//*/
-		}
-
-
-
-		void QueueAxisRelease()
-		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
-
-			auto control_map = RE::ControlMap::GetSingleton();
-
-			//I just remembered, we don't actually care about the control, it's the input we're trying to clear.
-			constexpr Input axisInputs[]{
-				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
-				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
-				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
-			};
-			
-			for (auto input : axisInputs)
-			{
-				auto end = activeMap.end();
-				auto it = activeMap.find(input);
-
-				if (it == end)
-					continue;
-
-				auto& active = it->second;
-
-				active->VisitActiveCommands([&](ActiveCommand& act)
-					{
-						//This actually needs to work for the individual active entry.
-
-						//For each entry active, try to mark it for release.
-
-						//act->ResetExecute();
-						act.SetEarlyExit(true);
-					});
-			}
-		}
-
-		void ReleaseAxis(RE::PlayerControls* a_controls)
-		{//I want to make a release version just for Axis so I can save myself the trouble. For now? fuck it.
-
-			//TODO: Generalize this pls
-			constexpr Input axisInputs[]{
-				{ RE::INPUT_DEVICE::kMouse, 0xA }, //mouseMove
-				{ RE::INPUT_DEVICE::kGamepad, 0xB },//thumbMoveL
-				{ RE::INPUT_DEVICE::kGamepad, 0xC },//thumbMoveR
-			};
-
-			for (auto input : axisInputs)
-			{
-				auto end = activeMap.end();
-				auto it = activeMap.find(input);
-
-				if (it == end)
-					continue;
-
-				ReleaseInput(a_controls, it);
-			}
-		}
-
-
-		//The axis release version of Handle Release should have a "ReleaseInput" function, it should use the iterator to do it's business. Also being
-		// able to push it.
-
 	};
-	
 
-	inline MatrixController* testController = new MatrixController;
-	inline std::array<MatrixController*, ControlState::Total> Controllers;
+	class MenuModeController : public MatrixController
+	{
+	public:
+		InstanceID GetInstanceID() const override
+		{
+			return ControlState::MenuMode;
+		}
 
+
+		MenuModeController()
+		{
+			//TODO: This has an issue where after clicking something like a message box it will retrigger despite the fact that the input should be consumed
+
+
+#define MAKE_INPUT(mc_action, mc_func, mc_aParam, mc_priority, mc_trigger, mc_conflict, mc_tFilter, mc_tParam)\
+			InputCommand* CONCAT(command,__LINE__) = new InputCommand; \
+			{\
+				auto& CONCAT(action, __LINE__) = CONCAT(command, __LINE__)->actions.emplace_back();\
+				CONCAT(action, __LINE__).type = mc_action; \
+				auto& CONCAT(args, __LINE__) = CONCAT(action, __LINE__).args = std::make_unique<Argument[]>(3); \
+				CONCAT(args, __LINE__)[InvokeFunction::FUNCTION_PTR] = mc_func; \
+				CONCAT(args, __LINE__)[InvokeFunction::CUST_PARAM_1] = mc_aParam; \
+				auto& CONCAT(trigger, __LINE__) = CONCAT(command, __LINE__)->triggers.emplace_back(); \
+				CONCAT(trigger, __LINE__).priority = mc_priority; \
+				CONCAT(trigger, __LINE__).type = mc_trigger; \
+				CONCAT(trigger, __LINE__).conflict = mc_conflict; \
+				CONCAT(trigger, __LINE__).stageFilter = mc_tFilter; \
+				CONCAT(trigger, __LINE__).args.emplace_back(std::make_unique<Argument[]>(1))[OnControl::CONTROL_ID] = mc_tParam; \
+				something.push_back(CONCAT(command, __LINE__)); \
+			}
+
+		std::vector<InputCommand*> something{  };
+
+
+
+
+
+		MAKE_INPUT(ActionType::InvokeFunction, tmp_YELL_a_nameNEW, 24, 24, TriggerType::OnControl, ConflictLevel::Blocking, EventStage::Start, "RightEquip");
+
+
+
+
+		for (auto command : something)
+		{
+			for (auto& trigger : command->triggers)
+			{
+				auto entry = std::make_shared<CommandEntry>(command, &trigger);
+
+				for (auto input : trigger.GetInputs())
+				{
+
+					auto& list = dynamicMap[input];
+
+					list.insert(std::upper_bound(list.begin(), list.end(), entry, [](const std::shared_ptr<CommandEntry>& lhs, const std::shared_ptr<CommandEntry>& rhs)
+						{return lhs->priority() > rhs->priority(); }),
+						entry);
+				}
+
+
+			}
+
+		}
+
+		//dynamicMap[Input{ RE::INPUT_DEVICE::kMouse, 0 }].emplace;
+		//dynamicMap[Input{ RE::INPUT_DEVICE::kMouse, 1 }] = {};
+		}
+	};
+
+	class GameUIController : public MatrixController
+	{
+		InstanceID id;
+		RE::IMenu* menu = nullptr;
+		RE::MenuEventHandler* handler = nullptr;
+
+		InstanceID GetInstanceID() const override
+		{
+			return id;
+		}
+
+
+		GameUIController(RE::IMenu* m) : menu{ m }, id{ m } {}
+	};
+
+
+
+	inline GameplayController* testController = new GameplayController{};
+	inline MenuModeController* menuController = new MenuModeController{};
+
+	inline std::unordered_map<void*, std::unique_ptr<GameUIController>> uiControllerMap;
+	inline std::unordered_map<const char*, void*> removalGuide;
+
+
+	inline void HandleUIMenu(RE::IMenu* menu, const RE::BSFixedString& name, bool opening)
+	{
+		RE::MenuControls* controls = RE::MenuControls::GetSingleton();
+
+		//controls->
+
+		auto eventsink = skyrim_cast<RE::MenuEventHandler*>(menu);
+
+		if (opening)
+		{
+			
+
+
+			removalGuide[name.c_str()] = menu;
+
+
+			//uiControllerMap.erase(it->second);
+			//removalGuide.erase(it);
+		}
+		else
+		{
+			auto it = removalGuide.find(name.c_str());
+
+
+			uiControllerMap.erase(it->second);
+			removalGuide.erase(it);
+
+		}
+
+	}
+
+	inline MatrixController* GetUIController(RE::MenuEventHandler* handler)
+	{
+		auto it = uiControllerMap.find(handler);
+
+		if (uiControllerMap.end() != it) {
+			return menuController;
+		}
+
+		return it->second.get();
+	}
 
 	inline void LoadTestManager()
 	{
@@ -3490,7 +3637,7 @@ namespace DIMS
 
 
 
-
+	//This is no longer relevant I want to say
 	namespace IMV2
 	{
 		using CommandMap = std::unordered_map<Input::Hash, std::vector<std::shared_ptr<CommandEntry>>>;
@@ -3556,7 +3703,7 @@ namespace DIMS
 
 
 			template <class Self>
-			auto ObtainContextInstance(this Self&& a_this, RE::InputContextID context)// -> Self::Instance*
+			auto ObtainControlInstance(this Self&& a_this, RE::InputContextID context)// -> Self::Instance*
 			{
 				using Thing = std::remove_pointer_t<std::remove_cvref_t<Self>>::Instance;
 				return static_cast<Thing*>(a_this.GetContextInstance(context, true));
@@ -3731,7 +3878,7 @@ namespace DIMS
 
 					for (auto parent : GetBaseObject()->parents)
 					{
-						parent->ObtainContextInstance(context)->SetInputEnabled(input, value);
+						parent->ObtainControlInstance(context)->SetInputEnabled(input, value);
 					}
 				}
 
@@ -3749,7 +3896,7 @@ namespace DIMS
 
 					for (auto parent : GetBaseObject()->parents)
 					{
-						parent->ObtainContextInstance(context)->SetAllInputsEnabled(value);
+						parent->ObtainControlInstance(context)->SetAllInputsEnabled(value);
 					}
 				}
 
@@ -3847,7 +3994,7 @@ namespace DIMS
 
 					for (auto parent : GetBaseObject()->parents)
 					{
-						auto add = parent->ObtainContextInstance(context)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
+						auto add = parent->ObtainControlInstance(context)->GetViableStates(code, data1, data2, limit, winner, change, inner_change);
 
 						if (add.size() != 0)
 							result.append_range(add);
@@ -3923,7 +4070,7 @@ namespace DIMS
 
 					for (auto& parent : settings->parents)
 					{
-						parent->ObtainContextInstance(context)->LoadVisitorList(list, input, control, _winner);
+						parent->ObtainControlInstance(context)->LoadVisitorList(list, input, control, _winner);
 					}
 
 

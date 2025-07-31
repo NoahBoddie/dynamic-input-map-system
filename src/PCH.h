@@ -116,7 +116,7 @@
 #include "magic_enum.hpp"
 
 #include "RoguesGallery.hpp"
-
+#include "Lexicon.h"
 
 #include "Impl/TypeAliases.h"
 
@@ -134,19 +134,21 @@ namespace DIMS
 	using namespace RGL_NAMESPACE;
 	using namespace RGL_INCLUDE_NAMESPACE;
 
+	//namespace logger = SKSE::log;
+
 	inline void EST()
 	{
 		ParameterType type;
 		~type;
 	}
-
+	
 }
 
 
 using namespace std::literals;
 using namespace REL::literals;
 
-namespace logger = SKSE::log;
+
 
 namespace util {
     using SKSE::stl::report_and_fail;

@@ -22,7 +22,7 @@ namespace DIMS
 		uint16_t size = 0;//size of trigger arguments
 		ConflictLevel conflict = ConflictLevel::None;//I may move this to action, due to the fact I'm not 100% sure triggers will want unique conflicts.
 		TriggerFlag flags = TriggerFlag::None;
-
+		
 
 		//rename this pls
 		//TODO: It seems TriggerNode::args is kinda just used for inputs. Please 
@@ -31,7 +31,11 @@ namespace DIMS
 		//TODO: Rename "delayArgs" to something fitting like requirements.
 		std::unique_ptr<Argument[]> delayArgs;
 
+		//std::vector<std::pair<std::string, StringHash>> requiresMenu
+
 		ConditionPtr conditions;//These are conditions SOLELY for the trigger in question.
+
+
 
 		size_t GetInputCount() const
 		{
@@ -71,11 +75,8 @@ namespace DIMS
 
 
 
-		
 
-
-
-		[[deprecated("No longer needed, command maps handle this, put on retirement")]]
+		//[[deprecated("No longer needed, command maps handle this, put on retirement")]]
 		bool CanHandleEvent(RE::InputEvent* event) const
 		{
 			auto trig_info = triggerInfo[type];

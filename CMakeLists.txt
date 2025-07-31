@@ -21,7 +21,7 @@ configure_file(
         @ONLY)
 
 set(headers
-     "include/ConditionData.h" "include/API_DIMS.h" "include/Var.h")
+     "include/ConditionData.h" "include/API_DIMS.h" "include/Var.h" "src/ControlInterface.h")
 
 set(sources
         src/main.cpp

@@ -18,7 +18,9 @@ namespace DIMS
 		//General condition for if the repeating action actually fires or not.
 		InputMatrix* parent = nullptr;
 
-		ConditionPtr conditions;
+		
+		//It'd be neat to have activation conditions and run conditions be seperate.
+		Condition conditions;
 
 		std::vector<ActionNode> actions;
 
@@ -28,6 +30,30 @@ namespace DIMS
 		ActionRecovery recovery = ActionRecovery::Break;
 
 		std::string name;
+
+		std::unique_ptr<std::vector<StringHash>> menuReqs = nullptr;
+
+
+		bool CheckConditions()
+		{
+			constexpr EventStage test = magic_enum::enum_cast<EventStage>("Start").value_or(EventStage::None);
+
+			if (!conditions)
+				return true;
+
+			return conditions().ToBoolean(true);
+		}
+
+
+
+		bool ShouldUpdate() const
+		{
+			if (menuReqs) {
+
+			}
+			
+			return true;
+		}
 
 
 		MatrixType GetParentType() const;
