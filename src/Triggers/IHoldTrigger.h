@@ -11,9 +11,18 @@ namespace DIMS
 	{
 		static constexpr auto HOLD_TIME = 0;
 
+
+		constexpr static Parameter PARAMETERS[]
+		{
+			Parameter{"HoldTime", ParameterType::Float},
+		};
+
+
 		DelayState GetDelayState(const Argument* args, const ActiveData* data, EventStage stage) const override;
 		
 		uint16_t GetRank(const Argument* args) const override;
+		
+		std::span<const Parameter> GetDelayParameters() const override { return PARAMETERS; }
 
 	};
 }

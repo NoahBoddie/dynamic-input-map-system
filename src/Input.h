@@ -18,12 +18,16 @@ namespace DIMS
 
 
 
-		constexpr Input(Hash a_hash)
+		constexpr Input(Hash a_hash) noexcept
 		{
 			//The idea is that this will not take input from literals. No idea how to do that though.
 			as_hash() = a_hash;
 		}
 		constexpr Input(RE::INPUT_DEVICE d, uint32_t c) noexcept : device{ d }, code{ c }
+		{
+		}
+
+		constexpr Input(const std::string_view& string) : device{ RE::InputDevice::kNone }, code{ RGL::Hash<HashFlags::Insensitive>(string) }
 		{
 		}
 
@@ -100,7 +104,7 @@ namespace DIMS
 
 	private:
 
-		constexpr Hash& as_hash()
+		constexpr Hash& as_hash() noexcept
 		{
 			return *static_cast<Hash*>((void*)this);
 		}

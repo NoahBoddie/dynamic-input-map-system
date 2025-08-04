@@ -5,5 +5,5 @@
 
 namespace DIMS
 {
-	std::span<Parameter> ITrigger::GetParameters() const { throw std::exception("This is unused"); }
+	
 }

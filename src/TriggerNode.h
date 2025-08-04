@@ -12,9 +12,10 @@
 namespace DIMS
 {
 
+
 	struct TriggerNode
 	{
-		TriggerType type;
+		TriggerType type = TriggerType::None;
 		EventStage stageFilter = EventStage::All;
 		//Priority is handled as a 16 bit number, but getting it's value is a 32 bit number. This allows for mutations
 		// of impossible to replicate values to take place, making it so some states are always on modes, and the other way around.
@@ -34,6 +35,116 @@ namespace DIMS
 		//std::vector<std::pair<std::string, StringHash>> requiresMenu
 
 		ConditionPtr conditions;//These are conditions SOLELY for the trigger in question.
+
+
+		ITrigger* GetTriggerInfo()
+		{
+			auto info = triggerInfo[type];
+			assert(info);
+			return info;
+		}
+
+		Argument* CreateRequiredInput()
+		{
+			auto info = GetTriggerInfo();
+
+			auto& result = args.emplace_back(info->CreateArguments());
+
+			return result.get();
+		}
+
+
+		void SetTriggerType(TriggerType a_type)
+		{
+			auto info = GetTriggerInfo();
+
+			type = a_type;
+
+			for (auto& arg : args)
+			{
+				arg = info->CreateArguments();
+			}
+
+			delayArgs = info->CreateDelayArguments();
+		}
+
+
+
+		bool SetArgument(Argument* input, size_t i, Argument value, ParameterType type)
+		{
+			auto info = GetTriggerInfo();
+
+			auto params = info->GetParameters();
+
+			if (params.size() > i) {
+				if (params[i].type == ParameterType::Any || params[i].type == type) {
+					input[i] = value;
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+
+		bool SetArgument(size_t input, size_t arg, Argument value, ParameterType type)
+		{
+			if (args.size() > input)
+				return false;
+
+			return SetArgument(args[input].get(), arg, value, type);
+		}
+
+
+
+		bool SetArgument(size_t x, size_t y, bool value) { return SetArgument(x, y, value, ParameterType::Bool); }
+		bool SetArgument(size_t x, size_t y, int value) { return SetArgument(x, y, value, ParameterType::Int); }
+		bool SetArgument(size_t x, size_t y, float value) { return SetArgument(x, y, value, ParameterType::Float); }
+		bool SetArgument(size_t x, size_t y, std::string_view value) { return SetArgument(x, y, value, ParameterType::String); }
+		bool SetArgument(size_t x, size_t y, RE::TESForm* value) { return SetArgument(x, y, value, ParameterType::Form); }
+		bool SetArgument(size_t x, size_t y, Input value) { return SetArgument(x, y, value, ParameterType::Input); }
+
+
+
+
+
+		bool SetArgument(Argument* x, size_t y, bool value) { return SetArgument(x, y, value, ParameterType::Bool); }
+		bool SetArgument(Argument* x, size_t y, int value) { return SetArgument(x, y, value, ParameterType::Int); }
+		bool SetArgument(Argument* x, size_t y, float value) { return SetArgument(x, y, value, ParameterType::Float); }
+		bool SetArgument(Argument* x, size_t y, std::string_view value) { return SetArgument(x, y, value, ParameterType::String); }
+		bool SetArgument(Argument* x, size_t y, RE::TESForm* value) { return SetArgument(x, y, value, ParameterType::Form); }
+		bool SetArgument(Argument* x, size_t y, Input value) { return SetArgument(x, y, value, ParameterType::Input); }
+
+
+
+
+		bool SetDelayArgument(size_t i, Argument value, ParameterType type)
+		{
+			auto info = GetTriggerInfo();
+
+			auto params = info->GetDelayParameters();
+
+			if (params.size() > i) {
+				if (params[i].type == ParameterType::Any || params[i].type == type) {
+					delayArgs[i] = value;
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+
+
+		bool SetDelayArgument(size_t i, bool value) { return SetDelayArgument(i, value, ParameterType::Bool); }
+		bool SetDelayArgument(size_t i, int value) { return SetDelayArgument(i, value, ParameterType::Int); }
+		bool SetDelayArgument(size_t i, float value) { return SetDelayArgument(i, value, ParameterType::Float); }
+		bool SetDelayArgument(size_t i, std::string_view value) { return SetDelayArgument(i, value, ParameterType::String); }
+		bool SetDelayArgument(size_t i, RE::TESForm* value) { return SetDelayArgument(i, value, ParameterType::Form); }
+		bool SetDelayArgument(size_t i, Input value) { return SetDelayArgument(i, value, ParameterType::Input); }
+
+
+
 
 
 

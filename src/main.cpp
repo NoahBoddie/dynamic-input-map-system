@@ -580,7 +580,8 @@ struct MenuMode_InputHook
         //*/
         RE::MenuControls* controls = adjust_pointer<RE::MenuControls>(&handlers, -offsetof(RE::MenuControls, handlers));
 
-        auto a_continue = DIMS::menuController->HandleEvent(controls, event);
+
+        auto a_continue = true;//DIMS::menuController->HandleEvent(controls, event);
 
         //While none of the above is quite necessary
 
@@ -612,11 +613,11 @@ struct MenuControlHandle_Hook
 
     static RE::BSEventNotifyControl thunk(RE::MenuControls* a_this, RE::InputEvent*& evt, RE::BSTEventSource<RE::InputEvent*>& src)
     {
-        DIMS::menuController->QueueRelease();
+        //DIMS::menuController->QueueRelease();
 
         auto result = func(a_this, evt, src);
         //I'm worried about this entering remap mode after.
-        DIMS::menuController->HandleRelease();
+        //DIMS::menuController->HandleRelease();
 
         return result;
     }
@@ -646,7 +647,7 @@ struct PlayerCharacter_GraphOutputEvent
 
     static RE::BSEventNotifyControl thunk(RE::BSTEventSink<RE::BSAnimationGraphEvent>* a_this, RE::BSAnimationGraphEvent* a_event, RE::BSTEventSource<RE::BSAnimationGraphEvent>* a_source)
     {
-        testController->stateMap.Update(RefreshCode::GraphOutputEvent, a_event->tag);
+        testController->stateHandler.Update(RefreshCode::GraphOutputEvent, a_event->tag);
         return func(a_this, a_event, a_source);
     }
 
@@ -668,7 +669,7 @@ struct PlayerCharacter_GraphInputEvent
         auto result = func(a_this, a_name);
 
         if (result)
-            testController->stateMap.Update(RefreshCode::GraphInputEvent, a_name);
+            testController->stateHandler.Update(RefreshCode::GraphInputEvent, a_name);
 
         return result;
     }
@@ -2172,6 +2173,10 @@ namespace DIMS::Test
     }
 
 
+    
+    
+    
+    
     struct CustomControl
     {
         //When loading, the invalid device types will be ignored depending on what game type is loaded.
@@ -2385,52 +2390,6 @@ namespace DIMS::Test
 
 
 
-    //Nameless entries are given an id
-    size_t namelessID = 1;
-    std::map<std::string, InputCommand> commands;
-    std::map<std::string, InputState> states;
-    std::map<std::string, InputMode> modes;
-
-    struct DIMSFile
-    {
-        DIMSFile(const std::string& name) : fileName{ name } {}
-
-
-        //This might really only need to be handled once and never again.
-        std::unordered_map<std::string, DIMSFile*> dependencies;
-
-        std::string fileName;//Use this specific string as the file key
-
-        //On each of these I want to give it a
-        std::map<std::string, InputCommand> commands;
-        std::map<std::string, InputState> states;
-        std::map<std::string, InputMode> modes;
-
-        std::string GenerateName(std::string_view prefix = "")
-        {
-            std::format("{}{}", prefix, namelessID++);
-        }
-
-        //For load it should put itself in the configuration manager.
-
-        void LoadFromJson(json& control)
-        {
-
-        }
-
-        //std::unordered_map<std::string, InputC
-    };
-
-
-
-    struct ConfigurationManager
-    {
-        std::map<std::string_view, DIMSFile*> files;
-
-        DIMSFile runtimeFile;
-
-
-    };
 
     struct FakeInputCommand : public InputCommand
     {

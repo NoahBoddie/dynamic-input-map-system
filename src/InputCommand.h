@@ -16,7 +16,7 @@ namespace DIMS
 		std::vector<TriggerNode> triggers;
 
 		//General condition for if the repeating action actually fires or not.
-		InputMatrix* parent = nullptr;
+		//InputMatrix* parent = nullptr;
 
 		
 		//It'd be neat to have activation conditions and run conditions be seperate.
@@ -56,11 +56,20 @@ namespace DIMS
 		}
 
 
-		MatrixType GetParentType() const;
+		ActionNode& CreateAction(ActionType type)
+		{
+			auto& result = actions.emplace_back();
+			result.SetActionType(type);
+			return result;
+		}
 
 
-		std::strong_ordering CompareOrder(const InputCommand* other) const;
-
+		TriggerNode& CreateTrigger(TriggerType type)
+		{
+			auto& result = triggers.emplace_back();
+			result.SetTriggerType(type);
+			return result;
+		}
 
 
 

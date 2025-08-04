@@ -17,11 +17,21 @@ namespace DIMS
 		static constexpr auto AXIS_ID = 0;
 
 
+		constexpr static Parameter PARAMETERS[]
+		{
+			Parameter{"Axis", ParameterType::Input},
+		};
+
+
+		size_t GetInputMax() const override { return 3; }
 
 		//Assign this manually.
 		TriggerType GetTriggerType() const override { return TriggerType::OnAxis; }
 
 		EventStage GetEventFilter() const override { return EventStage::All; }
+
+
+		std::span<const Parameter> GetParameters() const override { return PARAMETERS; }
 
 		//This is currently unused, so it should throw for now.
 

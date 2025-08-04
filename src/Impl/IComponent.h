@@ -16,7 +16,7 @@ namespace DIMS
 	{
 		virtual ~IComponent() = default;
 	
-	protected:
+	
 
 		virtual void UnhandleArguments(Argument* list) const {}
 		virtual void UnhandleParameters(Parameter* list) const {}

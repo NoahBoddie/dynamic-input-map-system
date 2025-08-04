@@ -73,12 +73,13 @@ namespace DIMS
 		}
 
 
-		MatrixType GetParentType() const
-		{
-			return command->GetParentType();
-		}
 
-		
+		MatrixType GetParentType() const;
+
+
+		std::strong_ordering CompareParent(const CommandEntry& other) const;
+
+
 
 		bool CompareOrder(const CommandEntry& other) const
 		{
@@ -89,7 +90,7 @@ namespace DIMS
 			// if they are unrelated, THEN priority swoops in.
 			
 			
-				switch (strong_ordering_to_int(command->CompareOrder(other.command)))
+				switch (strong_ordering_to_int(CompareParent(other)))
 				{
 					//This is reversed, as 0 is considered higher than 1 and so on.
 				case  1:
@@ -637,7 +638,7 @@ namespace DIMS
 		//bool IsDelayable() const{return trigger->trigger_size() > 1;}
 
 		//TODO: This needs to confirm these both come from the same space.
-		CommandEntry(InputCommand* cmd, TriggerNode* node) : trigger{ node }, command{ cmd }
+		CommandEntry(InputCommand* cmd, TriggerNode* node, InputMatrix* par) : trigger{ node }, command{ cmd }, parent { par }
 		{
 			//This doesn't need an parameter for control checking, I can ask the trigger node this. 
 			// Make this a function.

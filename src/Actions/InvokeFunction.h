@@ -8,7 +8,7 @@
 namespace DIMS
 {
 	
-	using ActionFunction = void(ActionData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2);
+	using ActionFunction = void(EventData&& data, EventFlag& flags, bool& result, const Argument& param1, const Argument& param2);
 
 	struct InvokeFunction : public IAction
 	{
@@ -16,7 +16,16 @@ namespace DIMS
 		static constexpr auto CUST_PARAM_1 = 1;
 		static constexpr auto CUST_PARAM_2 = 2;
 
+		constexpr static Parameter PARAMETERS[]
+		{
+			Parameter{"Function", ParameterType::Function},
+			Parameter{"Param1", ParameterType::Any},
+			Parameter{"Param2", ParameterType::Any},
+		};
+
 		ActionType GetActionType() const override { return ActionType::InvokeFunction; }
+
+		std::span<const Parameter> GetParameters() const override { return PARAMETERS; }
 
 
 		bool Execute(EventData data, EventFlag& flags, const Argument* list) const override

@@ -31,14 +31,17 @@ namespace DIMS
 
 	enum struct ParameterType
 	{
+		//Instead of registering integer or float, I think I'd actually like to just store the arguments as a double
 		None,
+		Any,
 		Bool,
 		Int,			//32 bit
 		Float,			//32 bits
 		String,			
 		Form,			//A form of some kind.
-		//Input,			//A raw input, including device stuff.
-		//Function,
+		Input,			//A raw input, including device stuff.
+		Mode,
+		Function,
 		Total,			//Total. Also used as an accept all key for arguments
 	};
 
@@ -70,7 +73,7 @@ namespace DIMS
 
 		Dynamic,			//A matrix that is selected from the controls menu. Should be serialized outside of control map.
 		Selected,		//The default state. Default configurations attach to this, rather than the default made config
-
+		Default,
 		Total,
 	};
 
@@ -265,7 +268,7 @@ namespace DIMS
 	{
 		Gameplay,
 		MenuMode,
-		GameUI,
+		//GameUI,
 		Total,
 	};
 	using ControlType = ControlState;

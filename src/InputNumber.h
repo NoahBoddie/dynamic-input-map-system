@@ -2,7 +2,7 @@
 
 namespace DIMS
 {
-
+	//TODO: input number should just be a double instead. Not saving any space with this.
 	union InputNumber
 	{
 		float	floating;

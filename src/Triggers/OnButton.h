@@ -17,7 +17,13 @@ namespace DIMS
 		static constexpr auto BUTTON_ID = 0;
 
 
+		constexpr static Parameter PARAMETERS[]
+		{
+			Parameter{"Button", ParameterType::Input},
+		};
 
+
+		size_t GetInputMax() const override { return 10; }
 
 		TriggerType GetTriggerType() const override { return TriggerType::OnButton; }
 
@@ -26,6 +32,8 @@ namespace DIMS
 		//This is currently unused, so it should throw for now.
 
 		Input GetInput(const Argument* list) const override;
+
+		std::span<const Parameter> GetParameters() const override { return PARAMETERS; }
 
 		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const
 		{

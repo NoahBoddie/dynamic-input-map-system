@@ -34,6 +34,8 @@ namespace DIMS
 			if (input.device != RE::INPUT_DEVICE::kKeyboard)
 				return;
 
+			//Pre cache these instead of making them is the better option I'd think.
+
 			//Something like this is then done to it.
 			//*
 			auto buttonEvent = RE::malloc<RE::ButtonEvent>(sizeof(RE::ButtonEvent));

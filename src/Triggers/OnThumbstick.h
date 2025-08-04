@@ -20,6 +20,14 @@ namespace DIMS
 		static constexpr auto kLeftThumbstick = RE::ThumbstickEvent::InputType::kLeftThumbstick;
 
 
+		constexpr static Parameter PARAMETERS[]
+		{
+			Parameter{"useRight", ParameterType::Bool},
+		};
+
+		size_t GetInputMax() const override { return 2; }
+
+
 		//Assign this manually.
 		TriggerType GetTriggerType() const override { return TriggerType::OnThumbstick; }
 
@@ -28,6 +36,10 @@ namespace DIMS
 		//This is currently unused, so it should throw for now.
 
 		Input GetInput(const Argument* args) const override;
+
+
+		std::span<const Parameter> GetParameters() const override { return PARAMETERS; }
+
 
 		virtual bool CanHandleEvent(RE::InputEvent* event, Argument* list) const
 		{
