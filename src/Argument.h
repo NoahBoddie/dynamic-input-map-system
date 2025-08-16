@@ -200,15 +200,20 @@ namespace DIMS
 		template <typename T> requires (std::is_trivially_destructible_v<T> && sizeof(T) <= sizeof(decltype(value)))
 		constexpr Argument(T val)
 		{
-			Set(val);
+			//TODO: C style cast scares me.
+			value = (uint64_t)(val);
+			//value = std::bit_cast<uint64_t>(val);
+			
+			//Set(val);
 		}
 
-		constexpr Argument(std::string_view str) noexcept
+		constexpr Argument(const std::string_view& str) noexcept
 		{
 			Set(Hash<HashFlags::Insensitive>(str));
 		}
-		constexpr Argument(const char* str) noexcept :Argument{ std::string_view{str} }
-		{}
+		
+		//constexpr Argument(const char* str) noexcept :Argument{ std::string_view{str} } {}
+		
 		/*
 		constexpr Argument(int32_t num) noexcept
 		{

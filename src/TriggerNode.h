@@ -44,6 +44,12 @@ namespace DIMS
 			return info;
 		}
 
+		ITrigger* GetTriggerInfo() const
+		{
+			return unconst(this)->GetTriggerInfo();
+		}
+
+
 		Argument* CreateRequiredInput()
 		{
 			auto info = GetTriggerInfo();
@@ -164,11 +170,13 @@ namespace DIMS
 			&input[arg_index];
 		}
 
-		std::vector<Input> GetInputs() const
+		std::vector<std::variant<Input, DynamicInput>> GetInputs() const
 		{
 			//No numbers because it initializes with numbers
-			std::vector<Input> result{ };
+			std::vector<std::variant<Input, DynamicInput>> result{ };
 			result.resize(args.size());
+
+			ITrigger* info = GetTriggerInfo();
 
 			if (args.size() == 0)//TODO: needs to require that the parameters have a size of 0 to do this
 			{
@@ -176,9 +184,14 @@ namespace DIMS
 			}
 			else
 			{
-				std::transform(args.begin(), args.end(), result.begin(), [this](const std::unique_ptr<Argument[]>& it)
+				std::transform(args.begin(), args.end(), result.begin(), [this, info](const std::unique_ptr<Argument[]>& it) -> std::variant<Input, DynamicInput>
 				{
-					return triggerInfo[type]->GetInput(it.get());
+					auto ptr = it.get();
+
+					if (auto input = info->GetInput(ptr); input.IsDynamicInput() == true)
+						return input;
+
+					return info->GetDynamicInput(ptr);
 				});
 			}
 			return result;

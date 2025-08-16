@@ -35,6 +35,7 @@ namespace DIMS
 		None,
 		Any,
 		Bool,
+		Enum,
 		Int,			//32 bit
 		Float,			//32 bits
 		String,			
@@ -72,7 +73,7 @@ namespace DIMS
 		//The relationship between ^ these is gonna have to be manual in terms of states blocking modes and such.
 
 		Dynamic,			//A matrix that is selected from the controls menu. Should be serialized outside of control map.
-		Selected,		//The default state. Default configurations attach to this, rather than the default made config
+		Scheme,		//The default state. Default configurations attach to this, rather than the default made config
 		Default,
 		Total,
 	};

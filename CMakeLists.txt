@@ -21,7 +21,7 @@ configure_file(
         @ONLY)
 
 set(headers
-     "include/ConditionData.h" "include/API_DIMS.h" "include/Var.h" "src/ControlInterface.h")
+     "include/ConditionData.h" "include/API_DIMS.h" "include/Var.h" "src/ControlInterface.h" "src/StringTable.h" "src/DynamicInput.h")
 
 set(sources
         src/main.cpp

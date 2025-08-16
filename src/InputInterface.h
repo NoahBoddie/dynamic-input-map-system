@@ -330,6 +330,73 @@ namespace DIMS
 			return event;
 		}
 
+		constexpr RE::InputDevice GetDevice() const noexcept
+		{
+			return event->device.get();
+		}
+
+		uint16_t GetInputID() const noexcept
+		{
+			if (auto id_event = event->AsIDEvent())
+				return static_cast<uint16_t>(id_event->GetIDCode());
+			
+			return 255;
+		}
+
+
+
+
+		std::vector<RE::BSFixedString> GetUserEvents() const
+		{
+			RE::ControlMap* cmap = RE::ControlMap::GetSingleton();
+
+
+
+			RE::InputContextID context = cmap->contextPriorityStack.size() ? cmap->contextPriorityStack.back() : RE::InputContextID::kGameplay;
+
+			//assert(a_device < RE::INPUT_DEVICE::kTotal);
+			//assert(a_context < RE::InputContextID::kTotal);
+
+			if (auto context_list = cmap->controlMap[context]) {
+				const auto& mappings = context_list->deviceMappings[GetDevice()];
+				RE::UserEventMapping tmp{};
+				tmp.inputKey = GetInputID();
+				auto range = std::equal_range(
+					mappings.begin(),
+					mappings.end(),
+					tmp,
+					[](auto&& a_lhs, auto&& a_rhs) {
+						return a_lhs.inputKey < a_rhs.inputKey;
+					});
+
+				
+				std::vector<RE::BSFixedString> result{};
+					
+				for (auto it = range.first; it != range.second; it++) {
+					result.push_back(it->eventID);
+				}
+				return result;
+					
+			}
+
+			return {};
+		}
+
+		std::vector<Input> GetEventInputs() const
+		{
+			auto events = GetUserEvents();
+			
+			std::vector<Input> result{};
+
+			result.reserve(events.size());
+
+			for (auto& str : GetUserEvents()) {
+				result.push_back(Input{ str });
+			}
+
+			return result;
+		}
+
 
 
 	private:

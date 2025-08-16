@@ -15,11 +15,16 @@ namespace DIMS
 	{
 		//All trigger classes will have these big old parameter constants. While the names of these parameters are found
 		static constexpr auto BUTTON_ID = 0;
+		static constexpr auto DEVICE_ID = 1;
+		static constexpr auto CONTEXT_ID = 2;
 
 
 		constexpr static Parameter PARAMETERS[]
 		{
 			Parameter{"Button", ParameterType::Input},
+			Parameter{"Device", ParameterType::Enum, RE::InputDevice::kNone },
+			Parameter{"Context", ParameterType::Input, RE::InputContextID::kNone },
+
 		};
 
 
@@ -32,6 +37,8 @@ namespace DIMS
 		//This is currently unused, so it should throw for now.
 
 		Input GetInput(const Argument* list) const override;
+		
+		DynamicInput GetDynamicInput(const Argument* list) const override;
 
 		std::span<const Parameter> GetParameters() const override { return PARAMETERS; }
 

@@ -836,7 +836,6 @@ SKSEPluginLoad(const LoadInterface* skse) {
     log::info("{} {} is loading...", plugin->GetName(), version);
     Init(skse);
 
-
     InitializeMessaging();
 
     //SKSE::AllocTrampoline(14 *  5);
@@ -890,7 +889,8 @@ namespace RE
 namespace DIMS::Test
 {
     using namespace nlohmann;
-    using json = nlohmann::json;
+    //using json = nlohmann::json;
+    using json = nlohmann::ordered_json;
 
     using json_type = json::value_t;
     /*
@@ -2199,7 +2199,7 @@ namespace DIMS::Test
 
             bool NeedsEntry() const
             {
-                return !keys.empty() || IsRemappable();
+                return !keys.empty() || remappable;
             }
 
             void AddKey(uint16_t input, uint16_t modifier)
@@ -2354,22 +2354,125 @@ namespace DIMS::Test
             };
 
 
-            if (IfFind(control, "context", [&](json& it)
+            std::function device_handle2 = [&](json& focus) {
+
+                json& device_list = focus["devices"];
+
+                std::array<Setting, RE::InputDevice::kTotal> devices;
+
+                for (RE::InputDevice i = (RE::InputDevice)0; i < RE::InputDevice::kVirtualKeyboard; i++)
+                {
+                    auto& device = devices[i];
+
+                    if (device.IsRemappable() == true) {
+                        //device has already been configured
+                        continue;
+                    }
+
+                    std::string_view device_name = magic_enum::enum_name(i).substr(1);
+
+                    IfFind(device_list, device_name, [&](json& it)
+                        {
+                            devices[i].LoadFromRecord(it, i);
+
+                            if (device.IsRemappable() == true)
+                            {
+                                shouldRegister = true;
+
+                                RE::InputDevice other;
+                                switch (i)
+                                {
+                                case RE::InputDevice::kMouse:
+                                    other = RE::InputDevice::kKeyboard;
+                                    goto comp;
+                                case RE::InputDevice::kKeyboard:
+                                    other = RE::InputDevice::kMouse;
+                                comp: devices[other].remappable = true;
+
+                                    break;
+                                }
+                            }
+                        });
+
+
+
+                    return devices;
+                }
+
+                };
+
+
+            if constexpr (1) {
+
+                std::set<RE::InputContextID> context_list;
+                
+                std::array<Setting, RE::InputDevice::kTotal> devices;
+
+                if (!IfFind(control, "inputs", [&](json& it)
+                    {
+                        VisitJsonArray(it, [&](json& it)
+                            {
+                                VisitJsonArray(it["context"], [&](json& it)
+                                    {
+                                        auto context = GetContextFromString(it);
+
+                                        if (context != RE::InputContextID::kNone)
+                                            context_list.emplace(context);
+                                    });
+
+                                devices = device_handle2(it);
+                            });
+                    }))
+                {
+                    context_list.emplace(RE::InputContextID::kGameplay);
+                    devices = device_handle2(control);
+                }
+
+                for (auto context : context_list)
+                {
+                    auto fit = contexts.find(context);
+
+                    if (contexts.end() != fit) {
+                        logger::error("Error, context already filled.");
+                        continue;
+                    }
+
+                    contexts[context] = devices;
+                }
+            }
+            else {
+                if (IfFind(control, "context", [&](json& it)
+                    {
+                        if constexpr (0) {
+                            for (auto& [key, value] : it.items())
+                            {
+                                context = GetContextFromString(key);
+                                if (context != RE::InputContextID::kNone)
+                                    device_handle2(value);
+                            }
+                        }
+                        else {
+                            for (int i = 0; i < it.size(); i++)
+                            {
+                                auto& entry = it[i];
+
+                                context = GetContextFromString(entry["name"]);
+                                if (context != RE::InputContextID::kNone)
+                                    device_handle(entry);
+                            }
+                        }
+                    }) == false)
                 {
 
-                    for (int i = 0; i < it.size(); i++)
-                    {
-                        auto& entry = it[i];
 
-                        context = GetContextFromString(entry["name"]);
-                        if (context != RE::InputContextID::kNone)
-                            device_handle(entry);
+                    if constexpr (0) {
+                        device_handle2(control["devices"]);
                     }
-                }) == false)
-            {
-                device_handle(control);
+                    else {
+                        device_handle(control);
+                    }
+                }
             }
-
 
             IfFind(control, "flags", [&](json& it)
                 {

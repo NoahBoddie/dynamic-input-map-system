@@ -2,6 +2,7 @@
 
 #include "Input.h"
 #include "Parameter.h"
+#include "DynamicInput.h"
 #include "Impl/IComponent.h"
 
 namespace DIMS
@@ -31,6 +32,8 @@ namespace DIMS
 		virtual std::span<const Parameter> GetDelayParameters() const { return {}; }
 
 		virtual Input GetInput(const Argument* list) const = 0;
+
+		virtual DynamicInput GetDynamicInput(const Argument* list) const { return {}; }//May make pure
 
 
 		
